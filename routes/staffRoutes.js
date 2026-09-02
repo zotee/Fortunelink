@@ -5,10 +5,7 @@ const CounterModel = require("../model/CounterModel");
 
 const router = express.Router();
 
-// ============================
-// CREATE STAFF
-// POST /api/staff
-// ============================
+
 router.post("/staff", async (req, res) => {
   try {
     const { name, phone, location, email } = req.body;
