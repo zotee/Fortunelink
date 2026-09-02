@@ -48,6 +48,10 @@ const clientSchema = new mongoose.Schema(
       ],
       default: "New",
     },
+    assignedStaff: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Staff",
+    },
   },
   {
     timestamps: true,

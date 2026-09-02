@@ -20,7 +20,7 @@ app.use(express.json()); // no need for body-parser anymore
 
 // MongoDB connection
 mongoose
-  .connect("mongodb://127.0.0.1:27017/backend")
+  .connect(process.env.MONGO_URI)
   .then(() => console.log("Connected to MongoDB"))
   .catch((err) => console.log("Database connection error:", err));
 

@@ -1,91 +1,77 @@
 const express = require("express");
 const router = express.Router();
+const Client = require("../model/clientSchema");
 
-const Client = require("../model/clientSchema"); // adjust path if needed
-
-// 📌 CREATE CLIENT
+// ✅ CREATE CLIENT
 router.post("/clients", async (req, res) => {
   try {
     const client = new Client(req.body);
     await client.save();
 
     res.status(201).json({
-      message: "Client created successfully",
+      message: "Client created",
       data: client,
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// 📌 GET ALL CLIENTS (only important fields)
+// ✅ GET ALL CLIENTS + STAFF INFO
 router.get("/clients", async (req, res) => {
   try {
-    const clients = await Client.find().select(
-      "clientId fullName phone visaType coeStatus clientStatus createdAt"
-    );
+    const clients = await Client.find()
+      .populate("assignedStaff", "name email");
 
     res.json({
       count: clients.length,
       data: clients,
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// 📌 GET SINGLE CLIENT
-router.get("/clients/:id", async (req, res) => {
+// ✅ ASSIGN CLIENT TO STAFF
+router.put("/clients/assign/:id", async (req, res) => {
   try {
-    const client = await Client.findById(req.params.id);
+    const { staffId } = req.body;
 
-    if (!client) {
-      return res.status(404).json({ message: "Client not found" });
-    }
-
-    res.json(client);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 📌 UPDATE CLIENT
-router.put("/clients/:id", async (req, res) => {
-  try {
-    const updatedClient = await Client.findByIdAndUpdate(
+    const updated = await Client.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      { assignedStaff: staffId },
       { new: true }
     );
 
-    if (!updatedClient) {
-      return res.status(404).json({ message: "Client not found" });
-    }
-
     res.json({
-      message: "Client updated successfully",
-      data: updatedClient,
+      message: "Client assigned",
+      data: updated,
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// 📌 DELETE CLIENT
-router.delete("/clients/:id", async (req, res) => {
+// ✅ GET CLIENTS BY STAFF
+router.get("/clients/staff/:staffId", async (req, res) => {
   try {
-    const deletedClient = await Client.findByIdAndDelete(req.params.id);
-
-    if (!deletedClient) {
-      return res.status(404).json({ message: "Client not found" });
-    }
+    const clients = await Client.find({
+      assignedStaff: req.params.staffId,
+    });
 
     res.json({
-      message: "Client deleted successfully",
+      count: clients.length,
+      data: clients,
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-module.exports = router; 
+// ✅ DELETE
+router.delete("/clients/:id", async (req, res) => {
+  await Client.findByIdAndDelete(req.params.id);
+  res.json({ message: "Deleted" });
+});
+
+module.exports = router;
