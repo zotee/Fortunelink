@@ -17,6 +17,7 @@ app.use(
   })
 );
 app.use(express.json()); // no need for body-parser anymore
+app.use(express.urlencoded({ extended: true }));
 
 // MongoDB connection
 mongoose
@@ -29,6 +30,7 @@ app.use("/api", authRoutes);   // super admin login
 app.use("/api", staffRoutes);  // staff APIs
 app.use("/api", profileRoutes); // profile APIs
 app.use("/api", clientRoutes);  // client APIs
+app.use("/api/auth", authRoutes);
 
 // Test route
 app.get("/", (req, res) => {
