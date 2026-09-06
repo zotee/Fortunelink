@@ -15,12 +15,16 @@ const generateToken = (payload) => {
 };
 
 // =================================================
-// SUPER ADMIN LOGIN
+// LOGIN - SUPER ADMIN + STAFF
 // =================================================
 
-exports.adminLogin = async (req, res) => {
+exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    // -------------------------------
+    // Validate
+    // -------------------------------
 
     if (!email || !password) {
       return res.status(400).json({
@@ -29,67 +33,48 @@ exports.adminLogin = async (req, res) => {
       });
     }
 
-    if (email.toLowerCase() !== superAdmin.email.toLowerCase()) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password",
-      });
-    }
+    const normalizedEmail = email.trim().toLowerCase();
 
-    const isMatch = await bcrypt.compare(
-      password,
-      superAdmin.password
-    );
+    // =================================================
+    // CHECK SUPER ADMIN
+    // =================================================
 
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password",
-      });
-    }
+    if (normalizedEmail === superAdmin.email.toLowerCase()) {
+      const isMatch = await bcrypt.compare(password, superAdmin.password);
 
-    const token = generateToken({
-      email: superAdmin.email,
-      role: "superadmin",
-    });
+      if (!isMatch) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid email or password",
+        });
+      }
 
-    return res.status(200).json({
-      success: true,
-      message: "Super Admin login successful",
-
-      user: {
+      const token = generateToken({
+        id: "superadmin",
         email: superAdmin.email,
         role: "superadmin",
-      },
+      });
 
-      token,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: error.message,
-    });
-  }
-};
+      return res.status(200).json({
+        success: true,
+        message: "Login successful",
 
-// =================================================
-// STAFF LOGIN
-// =================================================
+        user: {
+          id: "superadmin",
+          email: superAdmin.email,
+          role: "superadmin",
+        },
 
-exports.staffLogin = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required",
+        token,
       });
     }
 
+    // =================================================
+    // CHECK STAFF
+    // =================================================
+
     const staff = await Staff.findOne({
-      email: email.toLowerCase(),
+      email: normalizedEmail,
     });
 
     if (!staff) {
@@ -99,7 +84,7 @@ exports.staffLogin = async (req, res) => {
       });
     }
 
-    // Disabled/fired staff cannot login
+    // Disabled/fired staff
     if (!staff.isActive) {
       return res.status(403).json({
         success: false,
@@ -107,10 +92,7 @@ exports.staffLogin = async (req, res) => {
       });
     }
 
-    const isMatch = await bcrypt.compare(
-      password,
-      staff.password
-    );
+    const isMatch = await bcrypt.compare(password, staff.password);
 
     if (!isMatch) {
       return res.status(401).json({
@@ -127,7 +109,7 @@ exports.staffLogin = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Staff login successful",
+      message: "Login successful",
 
       user: {
         id: staff._id,
@@ -143,10 +125,11 @@ exports.staffLogin = async (req, res) => {
       token,
     });
   } catch (error) {
+    console.error("Login error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Server error",
-      error: error.message,
     });
   }
 };
@@ -193,9 +176,7 @@ exports.superAdminDashboard = async (req, res) => {
 
 exports.staffDashboard = async (req, res) => {
   try {
-    const staff = await Staff.findById(req.user.id).select(
-      "-password"
-    );
+    const staff = await Staff.findById(req.user.id).select("-password");
 
     if (!staff) {
       return res.status(404).json({
