@@ -14,7 +14,7 @@ const {
 
 
 // CREATE STAFF
-router.post("/staff", createStaff);
+router.post("/", createStaff);
 
 
 // GET ALL STAFF
