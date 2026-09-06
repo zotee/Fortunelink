@@ -1,4 +1,5 @@
 require("dotenv").config();
+
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -7,6 +8,7 @@ const authRoutes = require("./routes/authRoutes");
 const staffRoutes = require("./routes/staffRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const clientRoutes = require("./routes/clientRoutes");
+
 const app = express();
 
 // Middleware
@@ -14,38 +16,43 @@ app.use(
   cors({
     origin: "http://localhost:3000",
     credentials: true,
-  })
+  }),
 );
-app.use(express.json()); // no need for body-parser anymore
+
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// MongoDB connection
+// MongoDB
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("Connected to MongoDB"))
-  .catch((err) => console.log("Database connection error:", err));
+  .catch((err) => {
+    console.log("Database connection error:", err);
+  });
 
 // Routes
-app.use("/api", authRoutes);   // super admin login
-app.use("/api", staffRoutes);  // staff APIs
-app.use("/api", profileRoutes); // profile APIs
-app.use("/api", clientRoutes);  // client APIs
 app.use("/api/auth", authRoutes);
+app.use("/api/staff", staffRoutes);
+app.use("/api/profile", profileRoutes);
+app.use("/api/clients", clientRoutes);
 
-// Test route
+// Test
 app.get("/", (req, res) => {
-  res.json({ message: "Server is running" });
+  res.json({
+    message: "Server is running",
+  });
 });
 
-// Error handling middleware
+// Error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
+
   res.status(500).json({
+    success: false,
     message: "Internal Server Error",
   });
 });
 
-// Start server
 const PORT = process.env.PORT || 8001;
 
 app.listen(PORT, () => {

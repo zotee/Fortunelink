@@ -4,26 +4,14 @@ const router = express.Router();
 
 const authController = require("../controllers/authController");
 
-const {
-  verifyToken,
-  authorize,
-} = require("../middleware/authMiddleware");
+const { verifyToken, authorize } = require("../middleware/authMiddleware");
 
 // =================================================
 // LOGIN
 // =================================================
 
-// Super Admin login
-router.post(
-  "/superadmin/login",
-  authController.adminLogin
-);
-
-// Staff login
-router.post(
-  "/staff/login",
-  authController.staffLogin
-);
+// Login for both Super Admin and Staff
+router.post("/login", authController.login);
 
 // =================================================
 // SUPER ADMIN ONLY
@@ -33,7 +21,7 @@ router.get(
   "/superadmin/dashboard",
   verifyToken,
   authorize("superadmin"),
-  authController.superAdminDashboard
+  authController.superAdminDashboard,
 );
 
 // =================================================
@@ -44,7 +32,7 @@ router.get(
   "/staff/dashboard",
   verifyToken,
   authorize("staff"),
-  authController.staffDashboard
+  authController.staffDashboard,
 );
 
 module.exports = router;
