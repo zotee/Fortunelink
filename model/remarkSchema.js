@@ -23,7 +23,7 @@ const remarkSchema = new mongoose.Schema(
     medium: {
       type: String,
       required: true,
-      enum: ["Call", "Meeting", "WhatsApp", "Document", "Interview"],
+      enum: ["Phone Call", "Meeting", "WhatsApp", "Company Visit", "Other"],
     },
   },
   {

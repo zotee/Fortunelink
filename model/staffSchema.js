@@ -21,11 +21,12 @@ const staffSchema = new mongoose.Schema(
       trim: true,
     },
 
-    location: {
-      type: String,
-      required: true,
-      trim: true,
-    },
+   location: {
+  type: String,
+  enum: ["New York", "Japan", "Kathmandu"],
+  required: true,
+  trim: true,
+},
 
     email: {
       type: String,
