@@ -2,7 +2,6 @@ const express = require("express");
 
 const router = express.Router();
 
-
 const {
   createStaff,
   getAllStaff,
@@ -11,26 +10,19 @@ const {
   deleteStaff,
 } = require("../controllers/staffController");
 
-
-
 // CREATE STAFF
-router.post("/staff", createStaff);
-
+router.post("/", createStaff);
 
 // GET ALL STAFF
-router.get("/staff", getAllStaff);
-
+router.get("/", getAllStaff);
 
 // GET ONE STAFF
-router.get("/staff/:id", getOneStaff);
-
+router.get("/:id", getOneStaff);
 
 // UPDATE STAFF
-router.put("/staff/:id", updateStaff);
-
+router.put("/:id", updateStaff);
 
 // DELETE STAFF
-router.delete("/staff/:id", deleteStaff);
-
+router.delete("/:id", deleteStaff);
 
 module.exports = router;
