@@ -8,45 +8,37 @@ const authRoutes = require("./routes/authRoutes");
 const staffRoutes = require("./routes/staffRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const clientRoutes = require("./routes/clientRoutes");
+const remarkRoutes = require("./routes/remarkRoutes");
 
 const app = express();
 
-// Middleware
-app.use(
-  cors({
-    origin: "http://localhost:3000",
-    credentials: true,
-  }),
-);
+app.use(cors({
+  origin: "http://localhost:3000",
+  credentials: true,
+}));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// MongoDB
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("Connected to MongoDB"))
-  .catch((err) => {
-    console.log("Database connection error:", err);
-  });
+  .catch((err) => console.log(err));
 
-// Routes
+// ROUTES 
 app.use("/api/auth", authRoutes);
 app.use("/api/staff", staffRoutes);
-app.use("/api/profile", profileRoutes);
+app.use("/api/profiles", profileRoutes);
 app.use("/api/clients", clientRoutes);
+app.use("/api/remarks", remarkRoutes);
 
-// Test
 app.get("/", (req, res) => {
-  res.json({
-    message: "Server is running",
-  });
+  res.json({ message: "Server is running" });
 });
 
-// Error handler
+// ERROR HANDLER
 app.use((err, req, res, next) => {
   console.error(err.stack);
-
   res.status(500).json({
     success: false,
     message: "Internal Server Error",

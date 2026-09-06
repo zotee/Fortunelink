@@ -14,7 +14,7 @@ const {
 router.post("/", createStaff);
 
 // GET ALL STAFF
-router.get("/", getAllStaff);
+router.get("/staff", getAllStaff);
 
 // GET ONE STAFF
 router.get("/:id", getOneStaff);

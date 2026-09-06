@@ -88,7 +88,6 @@ const profileSchema = new mongoose.Schema(
       ref: "Staff",
     },
 
-    remarks: { type: String },
 
     // 📁 FILES
     clientImage: { type: String },
