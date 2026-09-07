@@ -1,25 +1,23 @@
 const mongoose = require("mongoose");
+const Counter = require("./CounterModel");
 
 const profileSchema = new mongoose.Schema(
   {
-    clientId: { type: Number, required: true, unique: true },
+    clientId: {
+      type: String,
+      unique: true,
+    },
 
     fullName: { type: String, required: true, trim: true },
-
     dateOfBirth: { type: Date },
-
     gender: { type: String, enum: ["Male", "Female", "Other"] },
-
     phone: { type: String, required: true, trim: true },
-
     email: { type: String, trim: true },
-
     address: { type: String, trim: true },
 
     nationality: { type: String, default: "Nepali" },
 
     passportNumber: { type: String, trim: true },
-
     passportExpiryDate: { type: Date },
 
     visaType: {
@@ -28,31 +26,22 @@ const profileSchema = new mongoose.Schema(
       enum: ["Student", "Working", "Dependent"],
     },
 
-    statusOfResidence: { type: String, trim: true },
+    statusOfResidence: String,
+    lastQualification: String,
+    japaneseLanguageLevel: String,
 
-    lastQualification: { type: String },
+    schoolName: String,
+    course: String,
+    intake: String,
 
-    japaneseLanguageLevel: { type: String },
+    jobCategory: String,
+    jobTitle: String,
+    companyName: String,
+    workLocation: String,
 
-    schoolName: { type: String },
-
-    course: { type: String },
-
-    intake: { type: String },
-
-    jobCategory: { type: String },
-
-    jobTitle: { type: String },
-
-    companyName: { type: String },
-
-    workLocation: { type: String },
-
-    sponsorName: { type: String },
-
-    sponsorRelationship: { type: String },
-
-    sponsorStatusOfResidence: { type: String },
+    sponsorName: String,
+    sponsorRelationship: String,
+    sponsorStatusOfResidence: String,
 
     coeStatus: {
       type: String,
@@ -88,12 +77,25 @@ const profileSchema = new mongoose.Schema(
       ref: "Staff",
     },
 
-
-    // 📁 FILES
-    clientImage: { type: String },
-    cv: { type: String },
+    clientImage: String,
+    cv: String,
   },
   { timestamps: true }
 );
+
+//
+// ✅ AUTO GENERATE SAME CLIENT ID SYSTEM
+//
+profileSchema.pre("save", async function () {
+  if (!this.isNew) return;
+
+  const counter = await Counter.findOneAndUpdate(
+    { _id: "ClientId" },
+    { $inc: { sequence_value: 1 } },
+    { new: true, upsert: true }
+  );
+
+  this.clientId = `J-${counter.sequence_value}`;
+});
 
 module.exports = mongoose.model("Profile", profileSchema);

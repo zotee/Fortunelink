@@ -28,7 +28,7 @@ mongoose
 // ROUTES 
 app.use("/api/auth", authRoutes);
 app.use("/api/staff", staffRoutes);
-app.use("/api/profiles", profileRoutes);
+app.use("/api/profile", profileRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/remarks", remarkRoutes);
 

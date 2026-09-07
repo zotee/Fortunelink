@@ -3,7 +3,7 @@ const router = express.Router();
 const Client = require("../model/clientSchema");
 
 // ✅ CREATE CLIENT
-router.post("/", async (req, res) => {
+router.post("/clients", async (req, res) => {
   try {
     const client = new Client(req.body);
     await client.save();

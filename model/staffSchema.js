@@ -1,11 +1,11 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
+const Counter = require("./CounterModel");
 
 const staffSchema = new mongoose.Schema(
   {
     staffId: {
-      type: Number,
-      required: true,
+      type: String,
       unique: true,
     },
 
@@ -21,12 +21,12 @@ const staffSchema = new mongoose.Schema(
       trim: true,
     },
 
-   location: {
-  type: String,
-  enum: ["New York", "Japan", "Kathmandu"],
-  required: true,
-  trim: true,
-},
+    location: {
+      type: String,
+      enum: ["USA", "Japan", "Nepal", "Other"],
+      required: true,
+      trim: true,
+    },
 
     email: {
       type: String,
@@ -47,32 +47,45 @@ const staffSchema = new mongoose.Schema(
       enum: ["staff"],
       default: "staff",
     },
-      isActive: {
+
+    isActive: {
       type: Boolean,
       default: true,
     },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-
-// HASH PASSWORD BEFORE SAVING
+//
+// ✅ AUTO GENERATE STAFF ID (FIXED - NO next())
+// 
 staffSchema.pre("save", async function () {
-  // If password was not changed, don't hash again
-  if (!this.isModified("password")) {
-    return;
-  }
+  if (!this.isNew) return;
+
+  const counter = await Counter.findOneAndUpdate(
+    { _id: "StaffId" },
+    { $inc: { sequence_value: 1 } },
+    { new: true, upsert: true }
+  );
+
+  const startValue = 122255;
+  this.staffId = `W-${startValue + counter.sequence_value}`;
+});
+
+//
+// ✅ HASH PASSWORD (FIXED)
+//
+staffSchema.pre("save", async function () {
+  if (!this.isModified("password")) return;
 
   this.password = await bcrypt.hash(this.password, 10);
 });
 
-
-// PASSWORD CHECK METHOD
+//
+// ✅ PASSWORD CHECK
+//
 staffSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
 };
-
 
 module.exports = mongoose.model("Staff", staffSchema);
