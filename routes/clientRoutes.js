@@ -18,7 +18,7 @@ router.post("/clients", async (req, res) => {
 });
 
 // ✅ GET ALL CLIENTS + STAFF INFO
-router.get("/clients", async (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const clients = await Client.find()
       .populate("assignedStaff", "name email");
@@ -33,7 +33,7 @@ router.get("/clients", async (req, res) => {
 });
 
 // ✅ ASSIGN CLIENT TO STAFF
-router.put("/clients/assign/:id", async (req, res) => {
+router.put("/assign/:id", async (req, res) => {
   try {
     const { staffId } = req.body;
 
@@ -53,7 +53,7 @@ router.put("/clients/assign/:id", async (req, res) => {
 });
 
 // ✅ GET CLIENTS BY STAFF
-router.get("/clients/staff/:staffId", async (req, res) => {
+router.get("/staff/:staffId", async (req, res) => {
   try {
     const clients = await Client.find({
       assignedStaff: req.params.staffId,
@@ -69,7 +69,7 @@ router.get("/clients/staff/:staffId", async (req, res) => {
 });
 
 // ✅ DELETE
-router.delete("/clients/:id", async (req, res) => {
+router.delete("/:id", async (req, res) => {
   await Client.findByIdAndDelete(req.params.id);
   res.json({ message: "Deleted" });
 });
