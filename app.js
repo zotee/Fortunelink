@@ -28,7 +28,7 @@ mongoose
 // ROUTES 
 app.use("/api/auth", authRoutes);
 app.use("/api/staff", staffRoutes);
-app.use("/api/profiles", profileRoutes);
+app.use("/api/profile", profileRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/remarks", remarkRoutes);
 
@@ -47,6 +47,6 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 8001;
 
-app.listen(PORT, () => {
+app.listen(PORT,"0.0.0.0", () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });

@@ -6,7 +6,7 @@ const upload = require("../middleware/upload");
 
 // 📌 CREATE PROFILE (with file upload)
 router.post(
-  "/profiles",
+  "/",
   upload.fields([
     { name: "clientImage", maxCount: 1 },
     { name: "cv", maxCount: 1 },

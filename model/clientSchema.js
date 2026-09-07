@@ -1,10 +1,10 @@
 const mongoose = require("mongoose");
+const Counter = require("./CounterModel");
 
 const clientSchema = new mongoose.Schema(
   {
     clientId: {
-      type: Number,
-      required: true,
+      type: String,
       unique: true,
     },
 
@@ -48,14 +48,29 @@ const clientSchema = new mongoose.Schema(
       ],
       default: "New",
     },
+
     assignedStaff: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Staff",
     },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
+
+//
+// ✅ AUTO GENERATE CLIENT ID
+//
+clientSchema.pre("save", async function () {
+  if (!this.isNew) return;
+
+  const counter = await Counter.findOneAndUpdate(
+    { _id: "ClientId" },
+    { $inc: { sequence_value: 1 } },
+    { new: true, upsert: true }
+  );
+
+  const startValue = 176587345;
+  this.clientId = `J-${startValue + counter.sequence_value}`;
+});
 
 module.exports = mongoose.model("Client", clientSchema);
