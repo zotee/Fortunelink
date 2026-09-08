@@ -1,3 +1,7 @@
+const dns = require("dns");
+
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
+
 require("dotenv").config();
 
 const express = require("express");
@@ -12,20 +16,17 @@ const remarkRoutes = require("./routes/remarkRoutes");
 
 const app = express();
 
-app.use(cors({
-  origin: "http://localhost:3000",
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: "http://localhost:3000",
+    credentials: true,
+  }),
+);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("Connected to MongoDB"))
-  .catch((err) => console.log(err));
-
-// ROUTES 
+// ROUTES
 app.use("/api/auth", authRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/profile", profileRoutes);
@@ -33,12 +34,16 @@ app.use("/api/clients", clientRoutes);
 app.use("/api/remarks", remarkRoutes);
 
 app.get("/", (req, res) => {
-  res.json({ message: "Server is running" });
+  res.json({
+    success: true,
+    message: "Server is running",
+  });
 });
 
 // ERROR HANDLER
 app.use((err, req, res, next) => {
   console.error(err.stack);
+
   res.status(500).json({
     success: false,
     message: "Internal Server Error",
@@ -47,6 +52,20 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 8001;
 
-app.listen(PORT,"0.0.0.0", () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+const startServer = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI);
+
+    console.log("Connected to MongoDB Atlas");
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error("MongoDB connection failed:");
+    console.error(error);
+    process.exit(1);
+  }
+};
+
+startServer();
