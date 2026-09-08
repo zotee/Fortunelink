@@ -18,10 +18,9 @@ router.post("/", async (req, res) => {
 });
 
 // ✅ GET ALL CLIENTS + STAFF INFO
-router.get("/", async (req, res) => {
+router.get("/clients", async (req, res) => {
   try {
-    const clients = await Client.find()
-      .populate("assignedStaff", "name email");
+    const clients = await Client.find().populate("assignedStaff", "name email");
 
     res.json({
       count: clients.length,
@@ -40,7 +39,7 @@ router.put("/assign/:id", async (req, res) => {
     const updated = await Client.findByIdAndUpdate(
       req.params.id,
       { assignedStaff: staffId },
-      { new: true }
+      { new: true },
     );
 
     res.json({
