@@ -2,16 +2,18 @@ const mongoose = require("mongoose");
 
 const profileSchema = new mongoose.Schema(
   {
-    // Same MongoDB _id as the Client document
-    // _id: {
-    //   type: mongoose.Schema.Types.ObjectId,
-    //   ref: "Client",
-    //   required: true,
-    // },
-
-    // Same public clientId as the Client document
     clientId: {
       type: String,
+      required: true,
+      unique: true,
+      index: true,
+      trim: true,
+      immutable: true,
+    },
+
+    clientRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Client",
       required: true,
       unique: true,
       index: true,
@@ -139,15 +141,21 @@ const profileSchema = new mongoose.Schema(
 
     visaStatus: {
       type: String,
-      enum: ["Not Applied", "Applied", "Processing", "Approved", "Rejected"],
+      enum: [
+        "Not Applied",
+        "Applied",
+        "Processing",
+        "Approved",
+        "Rejected",
+      ],
       default: "Not Applied",
     },
-    remark: {
-  type: String,
-  trim: true,
-  default: "",
-},
 
+    remark: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
     clientImage: {
       type: String,
@@ -161,7 +169,7 @@ const profileSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 module.exports = mongoose.model("Profile", profileSchema);
