@@ -18,7 +18,7 @@ router.post("/", async (req, res) => {
 });
 
 // ✅ GET ALL CLIENTS + STAFF INFO
-router.get("/clients", async (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const clients = await Client.find().populate("assignedStaff", "name email");
 
