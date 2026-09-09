@@ -5,7 +5,10 @@ const clientSchema = new mongoose.Schema(
   {
     clientId: {
       type: String,
+      required: true,
       unique: true,
+      index: true,
+      immutable: true,
     },
 
     fullName: {
@@ -50,27 +53,32 @@ const clientSchema = new mongoose.Schema(
     },
 
     assignedStaff: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Staff",
+      type: String,
+      default: null,
+      index: true,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
-//
-// ✅ AUTO GENERATE CLIENT ID
-//
-clientSchema.pre("save", async function () {
-  if (!this.isNew) return;
+// Auto generate clientId
+clientSchema.pre("validate", async function () {
+  if (!this.isNew || this.clientId) return;
 
   const counter = await Counter.findOneAndUpdate(
     { _id: "ClientId" },
     { $inc: { sequence_value: 1 } },
-    { new: true, upsert: true }
+    {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true,
+    }
   );
 
-  const startValue = 176587345;
-  this.clientId = `J-${startValue + counter.sequence_value}`;
+  const baseNumber = 176587344;
+  this.clientId = `J-${baseNumber + counter.sequence_value}`;
 });
 
 module.exports = mongoose.model("Client", clientSchema);

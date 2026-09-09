@@ -1,52 +1,140 @@
 const mongoose = require("mongoose");
-const Counter = require("./CounterModel");
 
 const profileSchema = new mongoose.Schema(
   {
+    // Same MongoDB _id as the Client document
+    // _id: {
+    //   type: mongoose.Schema.Types.ObjectId,
+    //   ref: "Client",
+    //   required: true,
+    // },
+
+    // Same public clientId as the Client document
     clientId: {
       type: String,
-      unique: true,
-    },
-
-    fullName: { type: String, required: true, trim: true },
-    dateOfBirth: { type: Date },
-    gender: { type: String, enum: ["Male", "Female", "Other"] },
-    phone: { type: String, required: true, trim: true },
-    email: { type: String, trim: true },
-    address: { type: String, trim: true },
-
-    nationality: { type: String, default: "Nepali" },
-
-    passportNumber: { type: String, trim: true },
-    passportExpiryDate: { type: Date },
-
-    visaType: {
-      type: String,
       required: true,
-      enum: ["Student", "Working", "Dependent"],
+      unique: true,
+      index: true,
+      immutable: true,
     },
 
-    statusOfResidence: String,
-    lastQualification: String,
-    japaneseLanguageLevel: String,
+    dateOfBirth: {
+      type: Date,
+      default: null,
+    },
 
-    schoolName: String,
-    course: String,
-    intake: String,
-
-    jobCategory: String,
-    jobTitle: String,
-    companyName: String,
-    workLocation: String,
-
-    sponsorName: String,
-    sponsorRelationship: String,
-    sponsorStatusOfResidence: String,
-
-    coeStatus: {
+    gender: {
       type: String,
-      enum: ["Not Applied", "Applied", "Processing", "Received", "Rejected"],
-      default: "Not Applied",
+      enum: ["Male", "Female", "Other"],
+      default: null,
+    },
+
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      default: "",
+    },
+
+    address: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    nationality: {
+      type: String,
+      trim: true,
+      default: "Nepali",
+    },
+
+    passportNumber: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    passportExpiryDate: {
+      type: Date,
+      default: null,
+    },
+
+    statusOfResidence: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    lastQualification: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    japaneseLanguageLevel: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    schoolName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    course: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    intake: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    jobCategory: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    jobTitle: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    companyName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    workLocation: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    sponsorName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    sponsorRelationship: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    sponsorStatusOfResidence: {
+      type: String,
+      trim: true,
+      default: "",
     },
 
     visaStatus: {
@@ -54,48 +142,26 @@ const profileSchema = new mongoose.Schema(
       enum: ["Not Applied", "Applied", "Processing", "Approved", "Rejected"],
       default: "Not Applied",
     },
+    remark: {
+  type: String,
+  trim: true,
+  default: "",
+},
 
-    clientStatus: {
+
+    clientImage: {
       type: String,
-      enum: [
-        "New",
-        "Document Collection",
-        "Processing",
-        "COE Applied",
-        "COE Received",
-        "Visa Applied",
-        "Visa Approved",
-        "Visa Rejected",
-        "Departed",
-        "Arrived in Japan",
-      ],
-      default: "New",
+      default: "",
     },
 
-    assignedStaff: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Staff",
+    cv: {
+      type: String,
+      default: "",
     },
-
-    clientImage: String,
-    cv: String,
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
-
-//
-// ✅ AUTO GENERATE SAME CLIENT ID SYSTEM
-//
-profileSchema.pre("save", async function () {
-  if (!this.isNew) return;
-
-  const counter = await Counter.findOneAndUpdate(
-    { _id: "ClientId" },
-    { $inc: { sequence_value: 1 } },
-    { new: true, upsert: true }
-  );
-
-  this.clientId = `J-${counter.sequence_value}`;
-});
 
 module.exports = mongoose.model("Profile", profileSchema);
