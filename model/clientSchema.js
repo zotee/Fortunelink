@@ -9,6 +9,7 @@ const clientSchema = new mongoose.Schema(
       unique: true,
       index: true,
       immutable: true,
+      trim: true,
     },
 
     fullName: {
@@ -31,7 +32,13 @@ const clientSchema = new mongoose.Schema(
 
     coeStatus: {
       type: String,
-      enum: ["Not Applied", "Applied", "Processing", "Received", "Rejected"],
+      enum: [
+        "Not Applied",
+        "Applied",
+        "Processing",
+        "Received",
+        "Rejected",
+      ],
       default: "Not Applied",
     },
 
@@ -52,32 +59,40 @@ const clientSchema = new mongoose.Schema(
       default: "New",
     },
 
+    // Stores staffId such as W-122261
     assignedStaff: {
       type: String,
       default: null,
       index: true,
+      trim: true,
     },
   },
   {
     timestamps: true,
-  }
+  },
 );
 
-// Auto generate clientId
 clientSchema.pre("validate", async function () {
-  if (!this.isNew || this.clientId) return;
+  if (!this.isNew || this.clientId) {
+    return;
+  }
 
   const counter = await Counter.findOneAndUpdate(
     { _id: "ClientId" },
-    { $inc: { sequence_value: 1 } },
+    {
+      $inc: {
+        sequence_value: 1,
+      },
+    },
     {
       new: true,
       upsert: true,
       setDefaultsOnInsert: true,
-    }
+    },
   );
 
   const baseNumber = 176587344;
+
   this.clientId = `J-${baseNumber + counter.sequence_value}`;
 });
 

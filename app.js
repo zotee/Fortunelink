@@ -20,19 +20,13 @@ app.use(
   cors({
     origin: "http://localhost:3000",
     credentials: true,
-<<<<<<< HEAD
   }),
-=======
-  })
->>>>>>> 110e229 (client and profile routing issue solved)
-);
+  );
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-<<<<<<< HEAD
 // ROUTES
-=======
 // =====================================
 // DATABASE CONNECTION
 // =====================================
@@ -56,7 +50,6 @@ mongoose
 // =====================================
 // ROUTES
 // =====================================
->>>>>>> 110e229 (client and profile routing issue solved)
 app.use("/api/auth", authRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/profile", profileRoutes);
@@ -84,7 +77,7 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 8001;
 
-<<<<<<< HEAD
+
 const startServer = async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI);
@@ -102,8 +95,8 @@ const startServer = async () => {
 };
 
 startServer();
-=======
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
->>>>>>> 110e229 (client and profile routing issue solved)
+

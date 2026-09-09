@@ -5,6 +5,7 @@ const counterSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+
   sequence_value: {
     type: Number,
     default: 0,
