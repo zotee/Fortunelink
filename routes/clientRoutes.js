@@ -13,6 +13,10 @@ const {
 const upload = require("../middleware/upload");
 
 const router = express.Router();
+// ✅ GET ALL CLIENTS + STAFF INFO
+router.get("/", async (req, res) => {
+  try {
+    const clients = await Client.find().populate("assignedStaff", "name email");
 
 const clientUploads = upload.fields([
   {
