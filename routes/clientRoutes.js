@@ -1,4 +1,5 @@
 const express = require("express");
+const router = express.Router();
 
 const {
   createClient,
@@ -10,14 +11,25 @@ const {
   assignClient,
 } = require("../controllers/clientController");
 
-// Make sure these names match the exports above exactly
-router.post("/", createClient);
-router.get("/", getAllClients);
-router.get("/:clientId", getClientDetails);
-router.patch("/:clientId", updateClient);
-router.delete("/:clientId", deleteClient);
+const upload = require("../middleware/upload");
 
-// Specific routes must come before /:clientId
+const clientUploads = upload.fields([
+  {
+    name: "clientImage",
+    maxCount: 1,
+  },
+  {
+    name: "cv",
+    maxCount: 1,
+  },
+]);
+
+router.post("/", clientUploads, createClient);
+
+// Admin can request all clients
+router.get("/", getAllClients);
+
+// Must be before /:clientId
 router.get("/staff/:staffId", getClientsByStaff);
 router.put("/assign/:clientId", assignClient);
 

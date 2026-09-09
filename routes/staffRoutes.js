@@ -1,28 +1,33 @@
 const express = require("express");
 
-const router = express.Router();
-
 const {
   createStaff,
   getAllStaff,
   getOneStaff,
+  getStaffClients,
   updateStaff,
   deleteStaff,
 } = require("../controllers/staffController");
 
-// CREATE STAFF
+const router = express.Router();
+
+// POST /api/staff
 router.post("/", createStaff);
 
-// GET ALL STAFF
+// GET /api/staff
 router.get("/", getAllStaff);
 
-// GET ONE STAFF
+// This specific route must come before /:id
+// GET /api/staff/W-122261/clients
+router.get("/:id/clients", getStaffClients);
+
+// GET /api/staff/W-122261
 router.get("/:id", getOneStaff);
 
-// UPDATE STAFF
-router.put("/:id", updateStaff);
+// PATCH /api/staff/W-122261
+router.patch("/:id", updateStaff);
 
-// DELETE STAFF
+// DELETE /api/staff/W-122261
 router.delete("/:id", deleteStaff);
 
 module.exports = router;
