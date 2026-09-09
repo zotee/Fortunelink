@@ -1,4 +1,5 @@
 const express = require("express");
+const router = express.Router();
 
 const {
   createClient,
@@ -11,8 +12,6 @@ const {
 } = require("../controllers/clientController");
 
 const upload = require("../middleware/upload");
-
-const router = express.Router();
 
 const clientUploads = upload.fields([
   {
