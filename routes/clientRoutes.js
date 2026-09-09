@@ -13,10 +13,6 @@ const {
 const upload = require("../middleware/upload");
 
 const router = express.Router();
-// ✅ GET ALL CLIENTS + STAFF INFO
-router.get("/", async (req, res) => {
-  try {
-    const clients = await Client.find().populate("assignedStaff", "name email");
 
 const clientUploads = upload.fields([
   {
@@ -31,9 +27,10 @@ const clientUploads = upload.fields([
 
 router.post("/", clientUploads, createClient);
 
+// Admin can request all clients
 router.get("/", getAllClients);
 
-// Specific routes must come before /:clientId
+// Must be before /:clientId
 router.get("/staff/:staffId", getClientsByStaff);
 router.put("/assign/:clientId", assignClient);
 

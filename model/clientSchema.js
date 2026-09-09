@@ -59,7 +59,7 @@ const clientSchema = new mongoose.Schema(
       default: "New",
     },
 
-    // Stores staffId such as W-122261
+    // Stores the generated staffId, for example W-122261
     assignedStaff: {
       type: String,
       default: null,

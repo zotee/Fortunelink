@@ -36,8 +36,8 @@ const PROFILE_FIELDS = [
   "remark",
 ];
 
-const selectFields = (source, allowedFields) => {
-  return allowedFields.reduce((result, field) => {
+const selectFields = (source, fields) => {
+  return fields.reduce((result, field) => {
     if (source[field] !== undefined) {
       result[field] = source[field];
     }
@@ -60,6 +60,63 @@ const getUploadedFiles = (req) => {
   return files;
 };
 
+const normalizeStaffId = (staffId) => {
+  if (staffId === undefined) {
+    return undefined;
+  }
+
+  if (staffId === null || staffId === "") {
+    return null;
+  }
+
+  return String(staffId).trim().toUpperCase();
+};
+
+const findStaffByStaffId = async (staffId) => {
+  if (!staffId) {
+    return null;
+  }
+
+  return Staff.findOne({ staffId })
+    .select("-password")
+    .lean();
+};
+
+const attachStaffDetails = async (clients) => {
+  const staffIds = [
+    ...new Set(
+      clients
+        .map((client) => client.assignedStaff)
+        .filter(Boolean),
+    ),
+  ];
+
+  if (staffIds.length === 0) {
+    return clients.map((client) => ({
+      ...client,
+      assignedStaffDetails: null,
+    }));
+  }
+
+  const staffMembers = await Staff.find({
+    staffId: {
+      $in: staffIds,
+    },
+  })
+    .select("-password")
+    .lean();
+
+  const staffMap = new Map(
+    staffMembers.map((staff) => [staff.staffId, staff]),
+  );
+
+  return clients.map((client) => ({
+    ...client,
+    assignedStaffDetails:
+      staffMap.get(client.assignedStaff) || null,
+  }));
+};
+
 // POST /api/clients
 exports.createClient = async (req, res) => {
   let createdClient = null;
@@ -78,56 +135,53 @@ exports.createClient = async (req, res) => {
       });
     }
 
+    clientData.assignedStaff = normalizeStaffId(
+      clientData.assignedStaff,
+    );
+
     if (clientData.assignedStaff) {
-      clientData.assignedStaff = String(
+      const staff = await findStaffByStaffId(
         clientData.assignedStaff,
-      ).trim();
+      );
 
-      // Verify public staffId such as W-122261
-      const staffExists = await Staff.exists({
-        staffId: clientData.assignedStaff,
-      });
-
-      if (!staffExists) {
-        return res.status(400).json({
+      if (!staff) {
+        return res.status(404).json({
           success: false,
-          message: `Staff ${clientData.assignedStaff} was not found.`,
+          message: `Staff ${clientData.assignedStaff} not found.`,
         });
       }
-    } else {
-      clientData.assignedStaff = null;
+
+      if (staff.isActive === false) {
+        return res.status(400).json({
+          success: false,
+          message: "The selected staff member is inactive.",
+        });
+      }
     }
 
     createdClient = await Client.create(clientData);
 
-    const profileData = {
-      ...selectFields(req.body, PROFILE_FIELDS),
-      ...getUploadedFiles(req),
+    createdProfile = await Profile.create({
       clientId: createdClient.clientId,
       clientRef: createdClient._id,
-    };
+      ...selectFields(req.body, PROFILE_FIELDS),
+      ...getUploadedFiles(req),
+    });
 
-    createdProfile = await Profile.create(profileData);
-
-    const staff = createdClient.assignedStaff
-      ? await Staff.findOne({
-          staffId: createdClient.assignedStaff,
-        })
-          .select("-password")
-          .lean()
-      : null;
+    const staffDetails = await findStaffByStaffId(
+      createdClient.assignedStaff,
+    );
 
     return res.status(201).json({
       success: true,
       message: "Client and profile created successfully.",
       data: {
         ...createdClient.toObject(),
-        assignedStaffDetails: staff,
+        assignedStaffDetails: staffDetails,
         profile: createdProfile.toObject(),
       },
     });
   } catch (error) {
-    // Remove both documents if anything fails
     if (createdProfile?._id) {
       await Profile.findByIdAndDelete(createdProfile._id).catch(() => {});
     }
@@ -143,16 +197,12 @@ exports.createClient = async (req, res) => {
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
-        message: "Duplicate data already exists.",
+        message: "Duplicate client or profile data exists.",
         duplicateFields: error.keyValue || {},
-        databaseMessage: error.message,
       });
     }
 
-    if (
-      error.name === "ValidationError" ||
-      error.name === "CastError"
-    ) {
+    if (error.name === "ValidationError") {
       return res.status(400).json({
         success: false,
         message: error.message,
@@ -166,7 +216,7 @@ exports.createClient = async (req, res) => {
   }
 };
 
-// GET /api/clients
+// Admin: GET /api/clients
 exports.getAllClients = async (req, res) => {
   try {
     const page = Math.max(
@@ -185,10 +235,30 @@ exports.getAllClients = async (req, res) => {
     const filter = search
       ? {
           $or: [
-            { clientId: { $regex: search, $options: "i" } },
-            { fullName: { $regex: search, $options: "i" } },
-            { phone: { $regex: search, $options: "i" } },
-            { assignedStaff: { $regex: search, $options: "i" } },
+            {
+              clientId: {
+                $regex: search,
+                $options: "i",
+              },
+            },
+            {
+              fullName: {
+                $regex: search,
+                $options: "i",
+              },
+            },
+            {
+              phone: {
+                $regex: search,
+                $options: "i",
+              },
+            },
+            {
+              assignedStaff: {
+                $regex: search,
+                $options: "i",
+              },
+            },
           ],
         }
       : {};
@@ -203,34 +273,11 @@ exports.getAllClients = async (req, res) => {
       Client.countDocuments(filter),
     ]);
 
-    const staffIds = [
-      ...new Set(
-        clients
-          .map((client) => client.assignedStaff)
-          .filter(Boolean),
-      ),
-    ];
-
-    const staffMembers = await Staff.find({
-      staffId: {
-        $in: staffIds,
-      },
-    })
-      .select("-password")
-      .lean();
-
-    const staffMap = new Map(
-      staffMembers.map((staff) => [staff.staffId, staff]),
-    );
-
-    const data = clients.map((client) => ({
-      ...client,
-      assignedStaffDetails:
-        staffMap.get(client.assignedStaff) || null,
-    }));
+    const data = await attachStaffDetails(clients);
 
     return res.status(200).json({
       success: true,
+      count: data.length,
       data,
       pagination: {
         page,
@@ -247,21 +294,17 @@ exports.getAllClients = async (req, res) => {
   }
 };
 
-// GET /api/clients/staff/:staffId
+// Staff: GET /api/clients/staff/W-122261
 exports.getClientsByStaff = async (req, res) => {
   try {
-    const staffId = decodeURIComponent(
-      String(req.params.staffId || ""),
-    ).trim();
+    const staffId = normalizeStaffId(req.params.staffId);
 
-    const staff = await Staff.findOne({ staffId })
-      .select("-password")
-      .lean();
+    const staff = await findStaffByStaffId(staffId);
 
     if (!staff) {
       return res.status(404).json({
         success: false,
-        message: "Staff not found.",
+        message: `Staff ${staffId} not found.`,
       });
     }
 
@@ -285,7 +328,7 @@ exports.getClientsByStaff = async (req, res) => {
   }
 };
 
-// GET /api/clients/:clientId
+// GET /api/clients/J-176587345
 exports.getClientDetails = async (req, res) => {
   try {
     const clientId = decodeURIComponent(
@@ -301,37 +344,31 @@ exports.getClientDetails = async (req, res) => {
       });
     }
 
-    const [profile, staff] = await Promise.all([
+    const [profile, staffDetails] = await Promise.all([
       Profile.findOne({
         clientId: client.clientId,
       }).lean(),
 
-      client.assignedStaff
-        ? Staff.findOne({
-            staffId: client.assignedStaff,
-          })
-            .select("-password")
-            .lean()
-        : Promise.resolve(null),
+      findStaffByStaffId(client.assignedStaff),
     ]);
 
     return res.status(200).json({
       success: true,
       data: {
         ...client,
-        assignedStaffDetails: staff,
+        assignedStaffDetails: staffDetails,
         profile: profile || null,
       },
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to get client details.",
+      message: error.message || "Failed to get client.",
     });
   }
 };
 
-// PATCH /api/clients/:clientId
+// PATCH /api/clients/J-176587345
 exports.updateClient = async (req, res) => {
   try {
     const clientId = decodeURIComponent(
@@ -350,23 +387,28 @@ exports.updateClient = async (req, res) => {
     const clientUpdates = selectFields(req.body, CLIENT_FIELDS);
 
     if (clientUpdates.assignedStaff !== undefined) {
+      clientUpdates.assignedStaff = normalizeStaffId(
+        clientUpdates.assignedStaff,
+      );
+
       if (clientUpdates.assignedStaff) {
-        clientUpdates.assignedStaff = String(
+        const staff = await findStaffByStaffId(
           clientUpdates.assignedStaff,
-        ).trim();
+        );
 
-        const staffExists = await Staff.exists({
-          staffId: clientUpdates.assignedStaff,
-        });
-
-        if (!staffExists) {
-          return res.status(400).json({
+        if (!staff) {
+          return res.status(404).json({
             success: false,
-            message: `Staff ${clientUpdates.assignedStaff} was not found.`,
+            message: `Staff ${clientUpdates.assignedStaff} not found.`,
           });
         }
-      } else {
-        clientUpdates.assignedStaff = null;
+
+        if (staff.isActive === false) {
+          return res.status(400).json({
+            success: false,
+            message: "The selected staff member is inactive.",
+          });
+        }
       }
     }
 
@@ -401,11 +443,16 @@ exports.updateClient = async (req, res) => {
       });
     }
 
+    const staffDetails = await findStaffByStaffId(
+      client.assignedStaff,
+    );
+
     return res.status(200).json({
       success: true,
       message: "Client updated successfully.",
       data: {
         ...client.toObject(),
+        assignedStaffDetails: staffDetails,
         profile: profile.toObject(),
       },
     });
@@ -413,9 +460,8 @@ exports.updateClient = async (req, res) => {
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
-        message: "Duplicate data already exists.",
+        message: "Duplicate data exists.",
         duplicateFields: error.keyValue || {},
-        databaseMessage: error.message,
       });
     }
 
@@ -426,14 +472,14 @@ exports.updateClient = async (req, res) => {
   }
 };
 
-// PUT /api/clients/assign/:clientId
+// PUT /api/clients/assign/J-176587345
 exports.assignClient = async (req, res) => {
   try {
     const clientId = decodeURIComponent(
       String(req.params.clientId || ""),
     ).trim();
 
-    const staffId = String(req.body.staffId || "").trim();
+    const staffId = normalizeStaffId(req.body.staffId);
 
     if (!staffId) {
       return res.status(400).json({
@@ -442,14 +488,19 @@ exports.assignClient = async (req, res) => {
       });
     }
 
-    const staff = await Staff.findOne({ staffId })
-      .select("-password")
-      .lean();
+    const staff = await findStaffByStaffId(staffId);
 
     if (!staff) {
       return res.status(404).json({
         success: false,
-        message: `Staff ${staffId} was not found.`,
+        message: `Staff ${staffId} not found.`,
+      });
+    }
+
+    if (staff.isActive === false) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot assign a client to an inactive staff member.",
       });
     }
 
@@ -489,7 +540,7 @@ exports.assignClient = async (req, res) => {
   }
 };
 
-// DELETE /api/clients/:clientId
+// DELETE /api/clients/J-176587345
 exports.deleteClient = async (req, res) => {
   try {
     const clientId = decodeURIComponent(
