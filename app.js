@@ -45,7 +45,8 @@ mongoose
       console.log("Counters collection already clean or does not exist");
     }
   })
-  .catch((err) => console.log("MongoDB connection error:", err));
+  .catch((err) => console
+  .log("MongoDB connection error:", err));
 
 // =====================================
 // ROUTES
