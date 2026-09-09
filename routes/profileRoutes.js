@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 
 const Profile = require("../model/profileSchema");
+const Remark = require("../model/remarkSchema");
 const upload = require("../middleware/upload");
 
 // 📌 CREATE PROFILE (with file upload)
@@ -15,8 +16,8 @@ router.post(
     try {
       const profile = new Profile({
         ...req.body,
-        clientImage: req.files?.clientImage?.[0]?.path,
-        cv: req.files?.cv?.[0]?.path,
+        clientImage: req.files?.clientImage?.[0]?.path || "",
+        cv: req.files?.cv?.[0]?.path || "",
       });
 
       await profile.save();
@@ -26,18 +27,27 @@ router.post(
         data: profile,
       });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({
+        error: err.message,
+      });
     }
   }
 );
 
 // 📌 GET ALL PROFILES
 router.get("/profiles", async (req, res) => {
-  const profiles = await Profile.find().populate("assignedStaff");
-  res.json(profiles);
+  try {
+    const profiles = await Profile.find().populate("assignedStaff");
+
+    res.json(profiles);
+  } catch (err) {
+    res.status(500).json({
+      error: err.message,
+    });
+  }
 });
 
-// 📌 GET SINGLE PROFILE
+// 📌 GET SINGLE PROFILE WITH REMARKS
 router.get("/profiles/:id", async (req, res) => {
   try {
     const profile = await Profile.findById(req.params.id).populate(
@@ -45,12 +55,24 @@ router.get("/profiles/:id", async (req, res) => {
     );
 
     if (!profile) {
-      return res.status(404).json({ message: "Profile not found" });
+      return res.status(404).json({
+        message: "Profile not found",
+      });
     }
 
-    res.json(profile);
+    // Get all remarks belonging to this profile
+    const remarks = await Remark.find({
+      clientId: profile._id,
+    }).sort({ createdAt: -1 });
+
+    res.json({
+      ...profile.toObject(),
+      remarks,
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: err.message,
+    });
   }
 });
 
@@ -60,26 +82,47 @@ router.put("/profiles/:id", async (req, res) => {
     const updated = await Profile.findByIdAndUpdate(
       req.params.id,
       req.body,
-      { new: true }
+      {
+        new: true,
+        runValidators: true,
+      }
     );
+
+    if (!updated) {
+      return res.status(404).json({
+        message: "Profile not found",
+      });
+    }
 
     res.json({
       message: "Profile updated successfully",
       data: updated,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: err.message,
+    });
   }
 });
 
 // 📌 DELETE PROFILE
 router.delete("/profiles/:id", async (req, res) => {
   try {
-    await Profile.findByIdAndDelete(req.params.id);
+    const deleted = await Profile.findByIdAndDelete(req.params.id);
 
-    res.json({ message: "Profile deleted successfully" });
+    if (!deleted) {
+      return res.status(404).json({
+        message: "Profile not found",
+      });
+    }
+
+    res.json({
+      message: "Profile deleted successfully",
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: err.message,
+    });
   }
 });
 

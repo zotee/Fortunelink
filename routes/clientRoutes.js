@@ -1,13 +1,15 @@
 const express = require("express");
 const router = express.Router();
-const Client = require("../model/clientSchema");
 
-// ✅ CREATE CLIENT
-router.post("/", async (req, res) => {
-  try {
-    const client = new Client(req.body);
-    await client.save();
+const {
+  createClient,
+  getAllClients,
+  getClientDetails,
+  updateClient,
+  deleteClient,
+} = require("../controllers/clientController");
 
+<<<<<<< HEAD
     res.status(201).json({
       message: "Client created",
       data: client,
@@ -72,5 +74,13 @@ router.delete("/:id", async (req, res) => {
   await Client.findByIdAndDelete(req.params.id);
   res.json({ message: "Deleted" });
 });
+=======
+// Make sure these names match the exports above exactly
+router.post("/", createClient);
+router.get("/", getAllClients);
+router.get("/:clientId", getClientDetails);
+router.patch("/:clientId", updateClient);
+router.delete("/:clientId", deleteClient);
+>>>>>>> 110e229 (client and profile routing issue solved)
 
 module.exports = router;

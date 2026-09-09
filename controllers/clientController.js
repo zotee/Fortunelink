@@ -1,552 +1,274 @@
-const mongoose = require("mongoose");
-const Client = require("../model/clientSchema");
-const Remark = require("../model/remarkSchema");
-const Staff = require("../model/staffSchema");
+const Client = require("../model/clientSchema");   // ← fix path if needed
+const Profile = require("../model/profileSchema"); // ← fix path if needed
 
-const getLoggedInUserId = (req) => {
-  return req.user?.id || req.user?._id;
+const PROFILE_FIELDS = [
+  "dateOfBirth",
+  "gender",
+  "email",
+  "address",
+  "nationality",
+  "passportNumber",
+  "passportExpiryDate",
+  "statusOfResidence",
+  "lastQualification",
+  "japaneseLanguageLevel",
+  "schoolName",
+  "course",
+  "intake",
+  "jobCategory",
+  "jobTitle",
+  "companyName",
+  "workLocation",
+  "sponsorName",
+  "sponsorRelationship",
+  "sponsorStatusOfResidence",
+  "visaStatus",
+  "clientImage",
+  "cv",
+];
+
+const getProfileData = (body) => {
+  return PROFILE_FIELDS.reduce((result, field) => {
+    if (body[field] !== undefined) {
+      result[field] = body[field];
+    }
+    return result;
+  }, {});
 };
 
-const isAdmin = (req) => {
-  const role = String(req.user?.role || "")
-    .toLowerCase()
-    .replace(/[\s_-]/g, "");
-
-  return ["admin", "superadmin", "masteradmin"].includes(role);
-};
-
-const canAccessClient = (req, client) => {
-  if (isAdmin(req)) {
-    return true;
-  }
-
-  const loggedInUserId = getLoggedInUserId(req);
-
-  if (!loggedInUserId || !client.assignedStaff) {
-    return false;
-  }
-
-  const assignedStaffId =
-    client.assignedStaff?._id || client.assignedStaff;
-
-  return assignedStaffId.toString() === loggedInUserId.toString();
-};
-
-// =====================================
-// CREATE CLIENT
-// =====================================
+// POST /api/clients
 exports.createClient = async (req, res) => {
+  let createdClient = null;
+
   try {
     const {
-      clientId,
       fullName,
       phone,
       visaType,
-      assignedStaff,
       coeStatus,
       clientStatus,
+      assignedStaff,
     } = req.body;
 
-    if (
-      clientId === undefined ||
-      !fullName?.trim() ||
-      !phone?.trim() ||
-      !visaType
-    ) {
+    if (!fullName || !phone || !visaType) {
       return res.status(400).json({
         success: false,
-        message:
-          "Client ID, full name, phone and visa type are required",
+        message: "fullName, phone and visaType are required.",
       });
     }
 
-    const loggedInUserId = getLoggedInUserId(req);
-
-    if (!loggedInUserId) {
-      return res.status(401).json({
-        success: false,
-        message: "Authenticated user was not found",
-      });
-    }
-
-    /*
-      Staff-created client: automatically assigned to that staff.
-      Admin-created client: assignedStaff must be sent in body.
-    */
-    const staffId = isAdmin(req)
-      ? assignedStaff
-      : loggedInUserId;
-
-    if (!staffId) {
-      return res.status(400).json({
-        success: false,
-        message: "Assigned staff is required",
-      });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(staffId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid assigned staff ID",
-      });
-    }
-
-    const staffExists = await Staff.exists({ _id: staffId });
-
-    if (!staffExists) {
-      return res.status(404).json({
-        success: false,
-        message: "Assigned staff was not found",
-      });
-    }
-
-    const existingClient = await Client.findOne({ clientId });
-
-    if (existingClient) {
-      return res.status(409).json({
-        success: false,
-        message: "This client ID already exists",
-      });
-    }
-
-    const clientData = {
-      clientId,
-      fullName: fullName.trim(),
-      phone: phone.trim(),
+    createdClient = await Client.create({
+      fullName,
+      phone,
       visaType,
-      assignedStaff: staffId,
-    };
+      coeStatus,
+      clientStatus,
+      assignedStaff: assignedStaff || null,
+    });
 
-    if (coeStatus !== undefined) {
-      clientData.coeStatus = coeStatus;
-    }
-
-    if (clientStatus !== undefined) {
-      clientData.clientStatus = clientStatus;
-    }
-
-    const client = await Client.create(clientData);
-
-    await client.populate(
-      "assignedStaff",
-      "name email phone role"
-    );
+    const profile = await Profile.create({
+      _id: createdClient._id,
+      clientId: createdClient.clientId,
+      ...getProfileData(req.body),
+    });
 
     return res.status(201).json({
       success: true,
-      message: "Client created successfully",
+      message: "Client created successfully.",
       data: {
-        ...client.toObject(),
-        remarks: [],
+        ...createdClient.toObject(),
+        profile: profile.toObject(),
       },
     });
   } catch (error) {
+    if (createdClient?._id) {
+      await Client.findByIdAndDelete(createdClient._id).catch(() => {});
+    }
+
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
-        message: "This client ID already exists",
-      });
-    }
-
-    if (error.name === "ValidationError") {
-      return res.status(400).json({
-        success: false,
-        message: error.message,
+        message: "A client or profile with this ID already exists.",
       });
     }
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message || "Failed to create client.",
     });
   }
 };
 
-// =====================================
-// GET ALL CLIENTS — ADMIN ONLY
-// =====================================
+// GET /api/clients
 exports.getAllClients = async (req, res) => {
   try {
-    if (!isAdmin(req)) {
-      return res.status(403).json({
-        success: false,
-        message: "Only admin can view all clients",
-      });
-    }
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
+    const skip = (page - 1) * limit;
 
-    const clients = await Client.find()
-      .populate("assignedStaff", "name email phone role")
-      .sort({ createdAt: -1 });
+    const search = String(req.query.search || "").trim();
+
+    const filter = search
+      ? {
+          $or: [
+            { clientId: { $regex: search, $options: "i" } },
+            { fullName: { $regex: search, $options: "i" } },
+            { phone: { $regex: search, $options: "i" } },
+          ],
+        }
+      : {};
+
+    const [clients, total] = await Promise.all([
+      Client.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      Client.countDocuments(filter),
+    ]);
 
     return res.status(200).json({
       success: true,
-      count: clients.length,
       data: clients,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// =====================================
-// GET LOGGED-IN STAFF CLIENTS
-// =====================================
-exports.getClientsByStaff = async (req, res) => {
-  try {
-    const staffId = getLoggedInUserId(req);
-
-    if (!staffId) {
-      return res.status(401).json({
-        success: false,
-        message: "Authenticated user was not found",
-      });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(staffId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid logged-in staff ID",
-      });
-    }
-
-    const clients = await Client.find({
-      assignedStaff: staffId,
-    })
-      .populate("assignedStaff", "name email phone role")
-      .sort({ createdAt: -1 });
-
-    return res.status(200).json({
-      success: true,
-      count: clients.length,
-      data: clients,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// =====================================
-// GET CLIENTS OF A SPECIFIC STAFF
-// ADMIN ONLY
-// =====================================
-exports.getClientsByStaffId = async (req, res) => {
-  try {
-    if (!isAdmin(req)) {
-      return res.status(403).json({
-        success: false,
-        message:
-          "Only admin can view another staff member's clients",
-      });
-    }
-
-    const { staffId } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(staffId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid staff ID",
-      });
-    }
-
-    const staffExists = await Staff.exists({ _id: staffId });
-
-    if (!staffExists) {
-      return res.status(404).json({
-        success: false,
-        message: "Staff not found",
-      });
-    }
-
-    const clients = await Client.find({
-      assignedStaff: staffId,
-    })
-      .populate("assignedStaff", "name email phone role")
-      .sort({ createdAt: -1 });
-
-    return res.status(200).json({
-      success: true,
-      count: clients.length,
-      data: clients,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// =====================================
-// GET CLIENT BY MONGODB ID WITH REMARKS
-// =====================================
-exports.getClientById = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid client ID",
-      });
-    }
-
-    const client = await Client.findById(id).populate(
-      "assignedStaff",
-      "name email phone role"
-    );
-
-    if (!client) {
-      return res.status(404).json({
-        success: false,
-        message: "Client not found",
-      });
-    }
-
-    if (!canAccessClient(req, client)) {
-      return res.status(403).json({
-        success: false,
-        message: "You cannot access this client",
-      });
-    }
-
-    const remarks = await Remark.find({
-      clientId: client._id,
-    })
-      .populate("staffId", "name email")
-      .sort({ createdAt: -1 });
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        ...client.toObject(),
-        remarks,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message || "Failed to get clients.",
     });
   }
 };
 
-// =====================================
-// UPDATE CLIENT
-// =====================================
-exports.updateClient = async (req, res) => {
+// GET /api/clients/:clientId
+exports.getClientDetails = async (req, res) => {
   try {
-    const { id } = req.params;
+    const clientId = decodeURIComponent(req.params.clientId).trim();
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid client ID",
-      });
-    }
-
-    const client = await Client.findById(id);
+    const client = await Client.findOne({ clientId }).lean();
 
     if (!client) {
       return res.status(404).json({
         success: false,
-        message: "Client not found",
+        message: "Client not found.",
       });
     }
 
-    if (!canAccessClient(req, client)) {
-      return res.status(403).json({
-        success: false,
-        message: "You cannot update this client",
-      });
-    }
+    const profile = await Profile.findOne({
+      clientId: client.clientId,
+    }).lean();
 
-    const allowedFields = [
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...client,
+        profile: profile || null,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to get client details.",
+    });
+  }
+};
+
+// PATCH /api/clients/:clientId
+exports.updateClient = async (req, res) => {
+  try {
+    const clientId = decodeURIComponent(req.params.clientId).trim();
+
+    const clientFields = [
       "fullName",
       "phone",
       "visaType",
       "coeStatus",
       "clientStatus",
+      "assignedStaff",
     ];
 
-    allowedFields.forEach((field) => {
+    const clientUpdates = {};
+    clientFields.forEach((field) => {
       if (req.body[field] !== undefined) {
-        if (
-          typeof req.body[field] === "string" &&
-          ["fullName", "phone"].includes(field)
-        ) {
-          client[field] = req.body[field].trim();
-        } else {
-          client[field] = req.body[field];
-        }
+        clientUpdates[field] = req.body[field];
       }
     });
 
-    await client.save();
-
-    await client.populate(
-      "assignedStaff",
-      "name email phone role"
-    );
-
-    const remarks = await Remark.find({
-      clientId: client._id,
-    })
-      .populate("staffId", "name email")
-      .sort({ createdAt: -1 });
-
-    return res.status(200).json({
-      success: true,
-      message: "Client updated successfully",
-      data: {
-        ...client.toObject(),
-        remarks,
-      },
-    });
-  } catch (error) {
-    if (error.name === "ValidationError") {
-      return res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// =====================================
-// ASSIGN OR REASSIGN CLIENT
-// ADMIN ONLY
-// =====================================
-exports.assignClientToStaff = async (req, res) => {
-  try {
-    if (!isAdmin(req)) {
-      return res.status(403).json({
-        success: false,
-        message: "Only admin can assign clients",
-      });
-    }
-
-    const { id } = req.params;
-    const { staffId } = req.body;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid client ID",
-      });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(staffId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid staff ID",
-      });
-    }
-
-    const staffExists = await Staff.exists({ _id: staffId });
-
-    if (!staffExists) {
-      return res.status(404).json({
-        success: false,
-        message: "Staff not found",
-      });
-    }
-
-    const client = await Client.findByIdAndUpdate(
-      id,
-      {
-        assignedStaff: staffId,
-      },
+    const client = await Client.findOneAndUpdate(
+      { clientId },
+      { $set: clientUpdates },
       {
         new: true,
         runValidators: true,
       }
-    ).populate("assignedStaff", "name email phone role");
+    );
 
     if (!client) {
       return res.status(404).json({
         success: false,
-        message: "Client not found",
+        message: "Client not found.",
       });
     }
 
-    const remarks = await Remark.find({
-      clientId: client._id,
-    })
-      .populate("staffId", "name email")
-      .sort({ createdAt: -1 });
+    const profileUpdates = getProfileData(req.body);
+
+    const profile = await Profile.findOneAndUpdate(
+      { clientId: client.clientId },
+      {
+        $set: profileUpdates,
+        $setOnInsert: {
+          _id: client._id,
+          clientId: client.clientId,
+        },
+      },
+      {
+        new: true,
+        upsert: true,
+        runValidators: true,
+      }
+    );
 
     return res.status(200).json({
       success: true,
-      message: "Client assigned successfully",
+      message: "Client updated successfully.",
       data: {
         ...client.toObject(),
-        remarks,
+        profile: profile.toObject(),
       },
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message || "Failed to update client.",
     });
   }
 };
 
-// =====================================
-// DELETE CLIENT AND REMARKS
-// ADMIN ONLY
-// =====================================
+// DELETE /api/clients/:clientId
 exports.deleteClient = async (req, res) => {
   try {
-    if (!isAdmin(req)) {
-      return res.status(403).json({
-        success: false,
-        message: "Only admin can delete clients",
-      });
-    }
+    const clientId = decodeURIComponent(req.params.clientId).trim();
 
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid client ID",
-      });
-    }
-
-    const client = await Client.findById(id);
+    const client = await Client.findOneAndDelete({ clientId });
 
     if (!client) {
       return res.status(404).json({
         success: false,
-        message: "Client not found",
+        message: "Client not found.",
       });
     }
 
-    await Remark.deleteMany({
-      clientId: client._id,
-    });
-
-    await client.deleteOne();
+    await Profile.deleteOne({ clientId: client.clientId });
 
     return res.status(200).json({
       success: true,
-      message: "Client and remarks deleted successfully",
+      message: "Client and profile deleted successfully.",
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message || "Failed to delete client.",
     });
   }
 };

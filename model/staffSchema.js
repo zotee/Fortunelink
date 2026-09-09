@@ -57,8 +57,8 @@ const staffSchema = new mongoose.Schema(
 );
 
 //
-// ✅ AUTO GENERATE STAFF ID (FIXED - NO next())
-// 
+// ✅ AUTO GENERATE STAFF ID
+//
 staffSchema.pre("save", async function () {
   if (!this.isNew) return;
 
@@ -73,7 +73,7 @@ staffSchema.pre("save", async function () {
 });
 
 //
-// ✅ HASH PASSWORD (FIXED)
+// ✅ HASH PASSWORD
 //
 staffSchema.pre("save", async function () {
   if (!this.isModified("password")) return;
