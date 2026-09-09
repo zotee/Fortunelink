@@ -10,28 +10,12 @@ const {
   assignClient,
 } = require("../controllers/clientController");
 
-const upload = require("../middleware/upload");
-
-const router = express.Router();
-// ✅ GET ALL CLIENTS + STAFF INFO
-router.get("/", async (req, res) => {
-  try {
-    const clients = await Client.find().populate("assignedStaff", "name email");
-
-const clientUploads = upload.fields([
-  {
-    name: "clientImage",
-    maxCount: 1,
-  },
-  {
-    name: "cv",
-    maxCount: 1,
-  },
-]);
-
-router.post("/", clientUploads, createClient);
-
+// Make sure these names match the exports above exactly
+router.post("/", createClient);
 router.get("/", getAllClients);
+router.get("/:clientId", getClientDetails);
+router.patch("/:clientId", updateClient);
+router.delete("/:clientId", deleteClient);
 
 // Specific routes must come before /:clientId
 router.get("/staff/:staffId", getClientsByStaff);
