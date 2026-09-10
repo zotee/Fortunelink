@@ -3,23 +3,14 @@ const Counter = require("./CounterModel");
 
 const clientSchema = new mongoose.Schema(
   {
-    // clientId: {
-    //   type: Number,
-    //   unique: true,
-    //   index: true,
-    // },
-
-    fullName: {
-      type: String,
-      required: true,
-      trim: true,
+    clientId: {
+      type: Number,        // ✅ UNCOMMENTED — was commented out
+      unique: true,
+      index: true,
     },
 
-    phone: {
-      type: String,
-      required: true,
-      trim: true,
-    },
+    fullName: { type: String, required: true, trim: true },
+    phone: { type: String, required: true, trim: true },
 
     visaType: {
       type: String,
@@ -29,29 +20,16 @@ const clientSchema = new mongoose.Schema(
 
     coeStatus: {
       type: String,
-      enum: [
-        "Not Applied",
-        "Applied",
-        "Processing",
-        "Received",
-        "Rejected",
-      ],
+      enum: ["Not Applied", "Applied", "Processing", "Received", "Rejected"],
       default: "Not Applied",
     },
 
     clientStatus: {
       type: String,
       enum: [
-        "New",
-        "Document Collection",
-        "Processing",
-        "COE Applied",
-        "COE Received",
-        "Visa Applied",
-        "Visa Approved",
-        "Visa Rejected",
-        "Departed",
-        "Arrived in Japan",
+        "New", "Document Collection", "Processing",
+        "COE Applied", "COE Received", "Visa Applied",
+        "Visa Approved", "Visa Rejected", "Departed", "Arrived in Japan",
       ],
       default: "New",
     },
@@ -71,7 +49,6 @@ const clientSchema = new mongoose.Schema(
   }
 );
 
-// ✅ Virtual populate: Client.assignedStaff ("W-122260") → Staff.staffId
 clientSchema.virtual("staff", {
   ref: "Staff",
   localField: "assignedStaff",
@@ -79,22 +56,24 @@ clientSchema.virtual("staff", {
   justOne: true,
 });
 
-// ✅ Compound index for getStaffClients sort
+// ✅ Display ID virtual — for UI: "J-176587346"
+clientSchema.virtual("displayId").get(function () {
+  return this.clientId ? `J-${this.clientId}` : null;
+});
+
 clientSchema.index({ assignedStaff: 1, createdAt: -1 });
 
-// ✅ Auto-generate clientId (NUMBER, not string)
 clientSchema.pre("save", async function () {
   if (!this.isNew || this.clientId) return;
 
   const counter = await Counter.findOneAndUpdate(
     { _id: "ClientId" },
     { $inc: { sequence_value: 1 } },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
+    { returnDocument: "after", upsert: true, setDefaultsOnInsert: true }
   );
 
   const startValue = 176587345;
-  this.clientId = `J-${startValue + counter.sequence_value}`;   // 👈 Number, no prefix
- 
+  this.clientId = startValue + counter.sequence_value;   // ✅ Number, no backticks
 });
 
 module.exports = mongoose.model("Client", clientSchema);
