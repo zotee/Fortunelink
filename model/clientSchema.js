@@ -4,15 +4,24 @@ const Counter = require("./CounterModel");
 const clientSchema = new mongoose.Schema(
   {
     clientId: {
-      type: String,        // ✅ String now (was Number)
+      type: String,        // ✅ String — matches "J-176587346" format
       unique: true,
       index: true,
       trim: true,
       immutable: true,     // set once, never changes
     },
 
-    fullName: { type: String, required: true, trim: true },
-    phone: { type: String, required: true, trim: true },
+    fullName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    phone: {
+      type: String,
+      required: true,
+      trim: true,
+    },
 
     visaType: {
       type: String,
@@ -29,9 +38,16 @@ const clientSchema = new mongoose.Schema(
     clientStatus: {
       type: String,
       enum: [
-        "New", "Document Collection", "Processing",
-        "COE Applied", "COE Received", "Visa Applied",
-        "Visa Approved", "Visa Rejected", "Departed", "Arrived in Japan",
+        "New",
+        "Document Collection",
+        "Processing",
+        "COE Applied",
+        "COE Received",
+        "Visa Applied",
+        "Visa Approved",
+        "Visa Rejected",
+        "Departed",
+        "Arrived in Japan",
       ],
       default: "New",
     },
@@ -51,11 +67,11 @@ const clientSchema = new mongoose.Schema(
   }
 );
 
-// ✅ Staff virtual: "W-122260" → Staff.staffId
+// ✅ Virtual populate: Client.assignedStaff ("W-122260") → Staff.staffId
 clientSchema.virtual("staff", {
   ref: "Staff",
-  localField: "assignedStaff",
-  foreignField: "staffId",
+  localField: "assignedStaff",   // "W-122260"
+  foreignField: "staffId",       // Staff.staffId
   justOne: true,
 });
 
@@ -77,7 +93,7 @@ clientSchema.pre("save", async function () {
   );
 
   const startValue = 176587345;
-  this.clientId = `J-${startValue + counter.sequence_value}`;  // ✅ "J-176587346"
+  this.clientId = `J-${startValue + counter.sequence_value}`;  // "J-176587346"
 });
 
 module.exports = mongoose.model("Client", clientSchema);
