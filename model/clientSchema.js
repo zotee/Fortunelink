@@ -58,7 +58,7 @@ const clientSchema = new mongoose.Schema(
       index: true,
     },
   },
-  {
+  { 
     timestamps: true,
   }
 );
