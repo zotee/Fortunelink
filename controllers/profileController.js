@@ -6,6 +6,7 @@ const Remark = require("../model/remarkSchema");
 
 const PROFILE_FIELDS = [
   "dateOfBirth",
+
   "gender",
   "email",
   "address",

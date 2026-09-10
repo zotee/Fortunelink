@@ -34,17 +34,13 @@ const findStaff = async (id, includePassword = false) => {
   return query;
 };
 
-// CREATE STAFF
-// POST /api/staff
+/* ============================================================
+   CREATE STAFF
+   POST /api/staff
+   ============================================================ */
 const createStaff = async (req, res) => {
   try {
-    const {
-      name,
-      phone,
-      location,
-      email,
-      password,
-    } = req.body;
+    const { name, phone, location, email, password } = req.body;
 
     if (
       !name?.trim() ||
@@ -82,13 +78,9 @@ const createStaff = async (req, res) => {
 
     const counter = await CounterModel.findOneAndUpdate(
       { _id: "StaffId" },
+      { $inc: { sequence_value: 1 } },
       {
-        $inc: {
-          sequence_value: 1,
-        },
-      },
-      {
-        new: true,
+        returnDocument: "after", // ✅ replaces deprecated `new: true`
         upsert: true,
         setDefaultsOnInsert: true,
       },
@@ -145,8 +137,10 @@ const createStaff = async (req, res) => {
   }
 };
 
-// GET ALL STAFF WITH CLIENT COUNTS
-// GET /api/staff
+/* ============================================================
+   GET ALL STAFF WITH CLIENT COUNTS
+   GET /api/staff
+   ============================================================ */
 const getAllStaff = async (req, res) => {
   try {
     const staffList = await Staff.find()
@@ -204,8 +198,10 @@ const getAllStaff = async (req, res) => {
   }
 };
 
-// GET ONE STAFF WITH CLIENT LIST
-// GET /api/staff/W-122257
+/* ============================================================
+   GET ONE STAFF WITH CLIENT LIST
+   GET /api/staff/W-122257
+   ============================================================ */
 const getOneStaff = async (req, res) => {
   try {
     const staff = await findStaff(req.params.id);
@@ -241,8 +237,10 @@ const getOneStaff = async (req, res) => {
   }
 };
 
-// GET CLIENTS ASSIGNED TO ONE STAFF
-// GET /api/staff/W-122257/clients?page=1&limit=10&search=
+/* ============================================================
+   GET CLIENTS ASSIGNED TO ONE STAFF
+   GET /api/staff/W-122257/clients?page=1&limit=10&search=
+   ============================================================ */
 const getStaffClients = async (req, res) => {
   try {
     const staff = await findStaff(req.params.id);
@@ -274,42 +272,18 @@ const getStaffClients = async (req, res) => {
       assignedStaff: staff.staffId,
     };
 
+    // ✅ UPDATED SEARCH BLOCK
+    // Removed Number(search) logic — clientId is now a String ("J-176587346")
     if (search) {
       filter.$or = [
-        {
-          fullName: {
-            $regex: search,
-            $options: "i",
-          },
-        },
-        {
-          phone: {
-            $regex: search,
-            $options: "i",
-          },
-        },
-        {
-          visaType: {
-            $regex: search,
-            $options: "i",
-          },
-        },
-        {
-          clientStatus: {
-            $regex: search,
-            $options: "i",
-          },
-        },
+        { fullName: { $regex: search, $options: "i" } },
+        { phone: { $regex: search, $options: "i" } },
+        { visaType: { $regex: search, $options: "i" } },
+        { clientStatus: { $regex: search, $options: "i" } },
+        { clientId: { $regex: search, $options: "i" } }, // ✅ matches "J-176" too
       ];
-
-      const numericClientId = Number(search);
-
-      if (Number.isFinite(numericClientId)) {
-        filter.$or.push({
-          clientId: numericClientId,
-        });
-      }
     }
+    // ✅ END UPDATED SEARCH BLOCK
 
     const [clients, total] = await Promise.all([
       Client.find(filter)
@@ -352,8 +326,10 @@ const getStaffClients = async (req, res) => {
   }
 };
 
-// UPDATE STAFF
-// PATCH /api/staff/W-122257
+/* ============================================================
+   UPDATE STAFF
+   PATCH /api/staff/W-122257
+   ============================================================ */
 const updateStaff = async (req, res) => {
   try {
     const staff = await findStaff(req.params.id, true);
@@ -421,9 +397,7 @@ const updateStaff = async (req, res) => {
 
       const existingEmail = await Staff.findOne({
         email: normalizedEmail,
-        _id: {
-          $ne: staff._id,
-        },
+        _id: { $ne: staff._id },
       });
 
       if (existingEmail) {
@@ -496,8 +470,10 @@ const updateStaff = async (req, res) => {
   }
 };
 
-// DELETE STAFF
-// DELETE /api/staff/W-122257
+/* ============================================================
+   DELETE STAFF
+   DELETE /api/staff/W-122257
+   ============================================================ */
 const deleteStaff = async (req, res) => {
   try {
     const staff = await findStaff(req.params.id, true);
