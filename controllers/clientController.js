@@ -9,7 +9,7 @@ const CLIENT_FIELDS = [
   "coeStatus",
   "clientStatus",
   "assignedStaff",
-   "dateOfBirth",
+  "dateOfBirth",
   "gender",
   "email",
   "address",
@@ -31,7 +31,6 @@ const CLIENT_FIELDS = [
   "sponsorStatusOfResidence",
   "visaStatus",
   "remark",
-
 ];
 
 const PROFILE_FIELDS = [
@@ -140,6 +139,24 @@ const attachStaffDetails = async (clients) => {
   }));
 };
 
+// Helper to parse pagination query params
+const parsePagination = (query) => {
+  const page = Math.max(
+    Number.parseInt(query.page, 10) || 1,
+    1,
+  );
+
+  const limit = Math.min(
+    Math.max(Number.parseInt(query.limit, 10) || 10, 1),
+    100,
+  );
+
+  const skip = (page - 1) * limit;
+  const search = String(query.search || "").trim();
+
+  return { page, limit, skip, search };
+};
+
 // POST /api/clients
 exports.createClient = async (req, res) => {
   let createdClient = null;
@@ -242,18 +259,7 @@ exports.createClient = async (req, res) => {
 // Admin: GET /api/clients
 exports.getAllClients = async (req, res) => {
   try {
-    const page = Math.max(
-      Number.parseInt(req.query.page, 10) || 1,
-      1,
-    );
-
-    const limit = Math.min(
-      Math.max(Number.parseInt(req.query.limit, 10) || 10, 1),
-      100,
-    );
-
-    const skip = (page - 1) * limit;
-    const search = String(req.query.search || "").trim();
+    const { page, limit, skip, search } = parsePagination(req.query);
 
     const filter = search
       ? {
@@ -331,17 +337,57 @@ exports.getClientsByStaff = async (req, res) => {
       });
     }
 
-    const clients = await Client.find({
-      assignedStaff: staffId,
-    })
-      .sort({ createdAt: -1 })
-      .lean();
+    const { page, limit, skip, search } = parsePagination(req.query);
+
+    const baseFilter = { assignedStaff: staffId };
+
+    const filter = search
+      ? {
+          ...baseFilter,
+          $or: [
+            {
+              clientId: {
+                $regex: search,
+                $options: "i",
+              },
+            },
+            {
+              fullName: {
+                $regex: search,
+                $options: "i",
+              },
+            },
+            {
+              phone: {
+                $regex: search,
+                $options: "i",
+              },
+            },
+          ],
+        }
+      : baseFilter;
+
+    const [clients, total] = await Promise.all([
+      Client.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+
+      Client.countDocuments(filter),
+    ]);
 
     return res.status(200).json({
       success: true,
       staff,
       count: clients.length,
       data: clients,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     });
   } catch (error) {
     return res.status(500).json({
