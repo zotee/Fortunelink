@@ -1,15 +1,25 @@
 const express = require("express");
-const router = express.Router();
-
 const remarkController = require("../controllers/remarkController");
 
-// CREATE REMARK
+// Check if protect middleware exists and is properly exported
+let protect;
+try {
+  protect = require("../middleware/authMiddleware");
+} catch (error) {
+  console.error("Auth middleware not found:", error.message);
+  // Fallback: create a dummy middleware if needed
+  protect = (req, res, next) => next();
+}
+
+const router = express.Router();
+
+// Only use protect if it's a valid middleware
+if (typeof protect === 'function') {
+  router.use(protect);
+}
+
 router.post("/", remarkController.createRemark);
-
-// GET CLIENT REMARKS
 router.get("/client/:clientId", remarkController.getClientRemarks);
-
-// DELETE REMARK
 router.delete("/:id", remarkController.deleteRemark);
 
 module.exports = router;

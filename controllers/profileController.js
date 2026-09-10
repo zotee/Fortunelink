@@ -142,16 +142,17 @@ exports.getProfileDetails = async (req, res) => {
       String(req.params.clientId || ""),
     ).trim();
 
-    const profile = await Profile.findOne({ clientId })
-      .populate("clientRef", "clientId fullName phone visaType assignedStaff")
-      .lean();
-
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: "Profile not found.",
-      });
-    }
+   const profile = await Profile.findOne({ clientId })
+      .populate({
+        path: "clientRef",
+        select: "clientId fullName phone visaType clientStatus assignedStaff",
+        populate: {
+          path: "staff",              // 👈 virtual we defined
+          model: "Staff",
+          select: "staffId name email phone location isActive role",
+        },
+      })
+      .lean({ virtuals: true }); 
 
     /*
       This supports either:

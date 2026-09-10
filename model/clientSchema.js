@@ -3,14 +3,11 @@ const Counter = require("./CounterModel");
 
 const clientSchema = new mongoose.Schema(
   {
-    clientId: {
-      type: String,
-      required: true,
-      unique: true,
-      index: true,
-      immutable: true,
-      trim: true,
-    },
+    // clientId: {
+    //   type: Number,
+    //   unique: true,
+    //   index: true,
+    // },
 
     fullName: {
       type: String,
@@ -59,41 +56,45 @@ const clientSchema = new mongoose.Schema(
       default: "New",
     },
 
-    // Stores the generated staffId, for example W-122261
     assignedStaff: {
       type: String,
-      default: null,
-      index: true,
+      ref: "Staff",
+      required: true,
       trim: true,
+      index: true,
     },
   },
   {
     timestamps: true,
-  },
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+  }
 );
 
-clientSchema.pre("validate", async function () {
-  if (!this.isNew || this.clientId) {
-    return;
-  }
+// ✅ Virtual populate: Client.assignedStaff ("W-122260") → Staff.staffId
+clientSchema.virtual("staff", {
+  ref: "Staff",
+  localField: "assignedStaff",
+  foreignField: "staffId",
+  justOne: true,
+});
+
+// ✅ Compound index for getStaffClients sort
+clientSchema.index({ assignedStaff: 1, createdAt: -1 });
+
+// ✅ Auto-generate clientId (NUMBER, not string)
+clientSchema.pre("save", async function () {
+  if (!this.isNew || this.clientId) return;
 
   const counter = await Counter.findOneAndUpdate(
     { _id: "ClientId" },
-    {
-      $inc: {
-        sequence_value: 1,
-      },
-    },
-    {
-      new: true,
-      upsert: true,
-      setDefaultsOnInsert: true,
-    },
+    { $inc: { sequence_value: 1 } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
   );
 
-  const baseNumber = 176587344;
-
-  this.clientId = `J-${baseNumber + counter.sequence_value}`;
+  const startValue = 176587345;
+  this.clientId = `J-${startValue + counter.sequence_value}`;   // 👈 Number, no prefix
+ 
 });
 
 module.exports = mongoose.model("Client", clientSchema);

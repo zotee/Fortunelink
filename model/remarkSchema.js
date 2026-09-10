@@ -4,8 +4,15 @@ const remarkSchema = new mongoose.Schema(
   {
     clientId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Profile",
+      ref: "Client",
       required: true,
+      index: true,
+    },
+
+    staffId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Staff",
+      default: null,
     },
 
     staffName: {
@@ -23,7 +30,15 @@ const remarkSchema = new mongoose.Schema(
     medium: {
       type: String,
       required: true,
-      enum: ["Phone Call", "Meeting", "WhatsApp", "Company Visit", "Other"],
+      trim: true,
+      enum: [
+        "Phone Call",
+        "Meeting",
+        "WhatsApp",
+        "Email",
+        "Company Visit",
+        "Other",
+      ],
     },
   },
   {
@@ -31,4 +46,12 @@ const remarkSchema = new mongoose.Schema(
   }
 );
 
-module.exports = mongoose.model("Remark", remarkSchema);
+remarkSchema.index({
+  clientId: 1,
+  createdAt: -1,
+});
+
+module.exports = mongoose.model(
+  "Remark",
+  remarkSchema
+);

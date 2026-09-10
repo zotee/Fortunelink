@@ -4,7 +4,7 @@ const Staff = require("../model/staffSchema");
 const Client = require("../model/clientSchema");
 const CounterModel = require("../model/CounterModel");
 
-// Find staff using either MongoDB _id or generated staffId
+// Find staff using MongoDB _id or generated staffId
 const findStaff = async (id, includePassword = false) => {
   const normalizedId = decodeURIComponent(
     String(id || ""),
@@ -17,12 +17,8 @@ const findStaff = async (id, includePassword = false) => {
   const filter = mongoose.Types.ObjectId.isValid(normalizedId)
     ? {
         $or: [
-          {
-            _id: normalizedId,
-          },
-          {
-            staffId: normalizedId.toUpperCase(),
-          },
+          { _id: normalizedId },
+          { staffId: normalizedId.toUpperCase() },
         ],
       }
     : {
@@ -85,9 +81,7 @@ const createStaff = async (req, res) => {
     }
 
     const counter = await CounterModel.findOneAndUpdate(
-      {
-        _id: "StaffId",
-      },
+      { _id: "StaffId" },
       {
         $inc: {
           sequence_value: 1,
@@ -113,11 +107,9 @@ const createStaff = async (req, res) => {
       isActive: true,
     });
 
-    // The staffSchema pre-save middleware hashes the password
     await staff.save();
 
     const staffData = staff.toObject();
-
     delete staffData.password;
 
     return res.status(201).json({
@@ -159,9 +151,7 @@ const getAllStaff = async (req, res) => {
   try {
     const staffList = await Staff.find()
       .select("-password")
-      .sort({
-        createdAt: -1,
-      })
+      .sort({ createdAt: -1 })
       .lean();
 
     const staffIds = staffList
@@ -214,10 +204,8 @@ const getAllStaff = async (req, res) => {
   }
 };
 
-// GET ONE STAFF WITH THEIR CLIENT LIST
-// Supports:
-// GET /api/staff/6aa0fb0bd3d49da506b00719
-// GET /api/staff/W-122261
+// GET ONE STAFF WITH CLIENT LIST
+// GET /api/staff/W-122257
 const getOneStaff = async (req, res) => {
   try {
     const staff = await findStaff(req.params.id);
@@ -232,9 +220,7 @@ const getOneStaff = async (req, res) => {
     const clients = await Client.find({
       assignedStaff: staff.staffId,
     })
-      .sort({
-        createdAt: -1,
-      })
+      .sort({ createdAt: -1 })
       .lean();
 
     return res.status(200).json({
@@ -255,8 +241,8 @@ const getOneStaff = async (req, res) => {
   }
 };
 
-// GET ONLY THE CLIENTS ASSIGNED TO ONE STAFF
-// GET /api/staff/W-122261/clients
+// GET CLIENTS ASSIGNED TO ONE STAFF
+// GET /api/staff/W-122257/clients?page=1&limit=10&search=
 const getStaffClients = async (req, res) => {
   try {
     const staff = await findStaff(req.params.id);
@@ -274,7 +260,10 @@ const getStaffClients = async (req, res) => {
     );
 
     const limit = Math.min(
-      Math.max(Number.parseInt(req.query.limit, 10) || 10, 1),
+      Math.max(
+        Number.parseInt(req.query.limit, 10) || 10,
+        1,
+      ),
       100,
     );
 
@@ -288,12 +277,6 @@ const getStaffClients = async (req, res) => {
     if (search) {
       filter.$or = [
         {
-          clientId: {
-            $regex: search,
-            $options: "i",
-          },
-        },
-        {
           fullName: {
             $regex: search,
             $options: "i",
@@ -305,14 +288,32 @@ const getStaffClients = async (req, res) => {
             $options: "i",
           },
         },
+        {
+          visaType: {
+            $regex: search,
+            $options: "i",
+          },
+        },
+        {
+          clientStatus: {
+            $regex: search,
+            $options: "i",
+          },
+        },
       ];
+
+      const numericClientId = Number(search);
+
+      if (Number.isFinite(numericClientId)) {
+        filter.$or.push({
+          clientId: numericClientId,
+        });
+      }
     }
 
     const [clients, total] = await Promise.all([
       Client.find(filter)
-        .sort({
-          createdAt: -1,
-        })
+        .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
@@ -352,8 +353,7 @@ const getStaffClients = async (req, res) => {
 };
 
 // UPDATE STAFF
-// Supports MongoDB _id or generated staffId
-// PATCH /api/staff/W-122261
+// PATCH /api/staff/W-122257
 const updateStaff = async (req, res) => {
   try {
     const staff = await findStaff(req.params.id, true);
@@ -438,7 +438,7 @@ const updateStaff = async (req, res) => {
     }
 
     if (password !== undefined && password !== "") {
-      if (password.length < 6) {
+      if (String(password).length < 6) {
         return res.status(400).json({
           success: false,
           message:
@@ -451,14 +451,12 @@ const updateStaff = async (req, res) => {
 
     if (isActive !== undefined) {
       staff.isActive =
-        isActive === true ||
-        isActive === "true";
+        isActive === true || isActive === "true";
     }
 
     await staff.save();
 
     const staffData = staff.toObject();
-
     delete staffData.password;
 
     const totalClients = await Client.countDocuments({
@@ -499,8 +497,7 @@ const updateStaff = async (req, res) => {
 };
 
 // DELETE STAFF
-// Supports MongoDB _id or generated staffId
-// DELETE /api/staff/W-122261
+// DELETE /api/staff/W-122257
 const deleteStaff = async (req, res) => {
   try {
     const staff = await findStaff(req.params.id, true);

@@ -25,7 +25,7 @@ const profileUploads = upload.fields([
 
 router.post("/", profileUploads, createProfile);
 
-router.get("/profiles", getAllProfiles);
+router.get("/", getAllProfiles);
 router.get("/profiles/:clientId", getProfileDetails);
 router.patch("/profiles/:clientId", profileUploads, updateProfile);
 router.delete("/profiles/:clientId", deleteProfile);
