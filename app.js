@@ -13,6 +13,9 @@ const staffRoutes = require("./routes/staffRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const clientRoutes = require("./routes/clientRoutes");
 const remarkRoutes = require("./routes/remarkRoutes");
+const performanceRoutes = require("./routes/performanceRoutes");
+const revenueRoutes = require("./routes/revenueRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
 
 const app = express();
 
@@ -31,7 +34,7 @@ app.use(
       }
     },
     credentials: true,
-  })
+  }),
 );
 
 app.use(express.json());
@@ -43,6 +46,9 @@ app.use("/api/staff", staffRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/remarks", remarkRoutes);
+app.use("/api/performance", performanceRoutes);
+app.use("/api/revenue", revenueRoutes);
+app.use("/api/payments", paymentRoutes);
 
 app.get("/", (req, res) => {
   res.json({

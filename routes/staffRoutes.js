@@ -8,28 +8,15 @@ const {
   updateStaff,
   deleteStaff,
 } = require("../controllers/staffController");
+const { verifyToken, authorize } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-// POST /api/staff
-router.post("/", createStaff);
-
-// GET /api/staff
-router.get("/", getAllStaff);
-
-/*
- * IMPORTANT:
- * This must be above router.get("/:id")
- */
-router.get("/:id/clients", getStaffClients);
-
-// GET /api/staff/W-122265
-router.get("/:id", getOneStaff);
-
-// PATCH /api/staff/W-122265
-router.patch("/:id", updateStaff);
-
-// DELETE /api/staff/W-122265
-router.delete("/:id", deleteStaff);
+router.post("/", verifyToken, authorize("superadmin"), createStaff);
+router.get("/", verifyToken, getAllStaff);
+router.get("/:id/clients", verifyToken, getStaffClients);
+router.get("/:id", verifyToken, getOneStaff);
+router.patch("/:id", verifyToken, authorize("superadmin"), updateStaff);
+router.delete("/:id", verifyToken, authorize("superadmin"), deleteStaff);
 
 module.exports = router;

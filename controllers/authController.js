@@ -103,6 +103,8 @@ exports.login = async (req, res) => {
 
     const token = generateToken({
       id: staff._id.toString(),
+      staffId: staff.staffId,
+      name: staff.name,
       email: staff.email,
       role: "staff",
     });

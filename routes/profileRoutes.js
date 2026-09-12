@@ -9,6 +9,7 @@ const {
 } = require("../controllers/profileController");
 
 const upload = require("../middleware/upload");
+const { verifyToken } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
@@ -23,11 +24,11 @@ const profileUploads = upload.fields([
   },
 ]);
 
-router.post("/", profileUploads, createProfile);
+router.post("/", verifyToken, profileUploads, createProfile);
 
-router.get("/", getAllProfiles);
-router.get("/profiles/:clientId", getProfileDetails);
-router.patch("/profiles/:clientId", profileUploads, updateProfile);
-router.delete("/profiles/:clientId", deleteProfile);
+router.get("/", verifyToken, getAllProfiles);
+router.get("/profiles/:clientId", verifyToken, getProfileDetails);
+router.patch("/profiles/:clientId", verifyToken, profileUploads, updateProfile);
+router.delete("/profiles/:clientId", verifyToken, deleteProfile);
 
 module.exports = router;

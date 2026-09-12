@@ -11,6 +11,7 @@ const {
   assignClient,
 } = require("../controllers/clientController");
 
+const { verifyToken, authorize } = require("../middleware/authMiddleware");
 const upload = require("../middleware/upload");
 
 const clientUploads = upload.fields([
@@ -24,17 +25,17 @@ const clientUploads = upload.fields([
   },
 ]);
 
-router.post("/", clientUploads, createClient);
-
-// Admin can request all clients
-router.get("/", getAllClients);
-
-// Must be before /:clientId
-router.get("/staff/:staffId", getClientsByStaff);
-router.put("/assign/:clientId", assignClient);
-
-router.get("/:clientId", getClientDetails);
-router.patch("/:clientId", clientUploads, updateClient);
-router.delete("/:clientId", deleteClient);
+router.post("/", verifyToken, createClient);
+router.get("/", verifyToken, getAllClients);
+router.get("/staff/:staffId", verifyToken, getClientsByStaff);
+router.put(
+  "/assign/:clientId",
+  verifyToken,
+  authorize("superadmin"),
+  assignClient,
+);
+router.get("/:clientId", verifyToken, getClientDetails);
+router.patch("/:clientId", verifyToken, clientUploads, updateClient);
+router.delete("/:clientId", verifyToken, authorize("superadmin"), deleteClient);
 
 module.exports = router;

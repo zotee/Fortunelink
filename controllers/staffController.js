@@ -6,9 +6,7 @@ const CounterModel = require("../model/CounterModel");
 
 // Find staff using MongoDB _id or generated staffId
 const findStaff = async (id, includePassword = false) => {
-  const normalizedId = decodeURIComponent(
-    String(id || ""),
-  ).trim();
+  const normalizedId = decodeURIComponent(String(id || "")).trim();
 
   if (!normalizedId) {
     return null;
@@ -16,10 +14,7 @@ const findStaff = async (id, includePassword = false) => {
 
   const filter = mongoose.Types.ObjectId.isValid(normalizedId)
     ? {
-        $or: [
-          { _id: normalizedId },
-          { staffId: normalizedId.toUpperCase() },
-        ],
+        $or: [{ _id: normalizedId }, { staffId: normalizedId.toUpperCase() }],
       }
     : {
         staffId: normalizedId.toUpperCase(),
@@ -51,8 +46,7 @@ const createStaff = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Name, phone, location, email and password are required.",
+        message: "Name, phone, location, email and password are required.",
       });
     }
 
@@ -148,9 +142,7 @@ const getAllStaff = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    const staffIds = staffList
-      .map((staff) => staff.staffId)
-      .filter(Boolean);
+    const staffIds = staffList.map((staff) => staff.staffId).filter(Boolean);
 
     const clientCounts = await Client.aggregate([
       {
@@ -171,16 +163,12 @@ const getAllStaff = async (req, res) => {
     ]);
 
     const clientCountMap = new Map(
-      clientCounts.map((item) => [
-        item._id,
-        item.totalClients,
-      ]),
+      clientCounts.map((item) => [item._id, item.totalClients]),
     );
 
     const result = staffList.map((staff) => ({
       ...staff,
-      totalClients:
-        clientCountMap.get(staff.staffId) || 0,
+      totalClients: clientCountMap.get(staff.staffId) || 0,
     }));
 
     return res.status(200).json({
@@ -252,16 +240,10 @@ const getStaffClients = async (req, res) => {
       });
     }
 
-    const page = Math.max(
-      Number.parseInt(req.query.page, 10) || 1,
-      1,
-    );
+    const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
 
     const limit = Math.min(
-      Math.max(
-        Number.parseInt(req.query.limit, 10) || 10,
-        1,
-      ),
+      Math.max(Number.parseInt(req.query.limit, 10) || 10, 1),
       100,
     );
 
@@ -320,8 +302,7 @@ const getStaffClients = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message:
-        error.message || "Failed to get staff clients.",
+      message: error.message || "Failed to get staff clients.",
     });
   }
 };
@@ -341,14 +322,7 @@ const updateStaff = async (req, res) => {
       });
     }
 
-    const {
-      name,
-      phone,
-      location,
-      email,
-      password,
-      isActive,
-    } = req.body;
+    const { name, phone, location, email, password, isActive } = req.body;
 
     if (name !== undefined) {
       if (!String(name).trim()) {
@@ -384,9 +358,7 @@ const updateStaff = async (req, res) => {
     }
 
     if (email !== undefined) {
-      const normalizedEmail = String(email)
-        .toLowerCase()
-        .trim();
+      const normalizedEmail = String(email).toLowerCase().trim();
 
       if (!normalizedEmail) {
         return res.status(400).json({
@@ -403,8 +375,7 @@ const updateStaff = async (req, res) => {
       if (existingEmail) {
         return res.status(409).json({
           success: false,
-          message:
-            "Another staff member already uses this email.",
+          message: "Another staff member already uses this email.",
         });
       }
 
@@ -415,8 +386,7 @@ const updateStaff = async (req, res) => {
       if (String(password).length < 6) {
         return res.status(400).json({
           success: false,
-          message:
-            "Password must be at least 6 characters.",
+          message: "Password must be at least 6 characters.",
         });
       }
 
@@ -424,8 +394,7 @@ const updateStaff = async (req, res) => {
     }
 
     if (isActive !== undefined) {
-      staff.isActive =
-        isActive === true || isActive === "true";
+      staff.isActive = isActive === true || isActive === "true";
     }
 
     await staff.save();

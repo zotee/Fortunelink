@@ -31,6 +31,8 @@ const CLIENT_FIELDS = [
   "sponsorStatusOfResidence",
   "visaStatus",
   "remark",
+  "nextFollowUpDate",
+  "nextFollowUpPurpose",
 ];
 
 const PROFILE_FIELDS = [
@@ -99,18 +101,12 @@ const findStaffByStaffId = async (staffId) => {
     return null;
   }
 
-  return Staff.findOne({ staffId })
-    .select("-password")
-    .lean();
+  return Staff.findOne({ staffId }).select("-password").lean();
 };
 
 const attachStaffDetails = async (clients) => {
   const staffIds = [
-    ...new Set(
-      clients
-        .map((client) => client.assignedStaff)
-        .filter(Boolean),
-    ),
+    ...new Set(clients.map((client) => client.assignedStaff).filter(Boolean)),
   ];
 
   if (staffIds.length === 0) {
@@ -128,23 +124,17 @@ const attachStaffDetails = async (clients) => {
     .select("-password")
     .lean();
 
-  const staffMap = new Map(
-    staffMembers.map((staff) => [staff.staffId, staff]),
-  );
+  const staffMap = new Map(staffMembers.map((staff) => [staff.staffId, staff]));
 
   return clients.map((client) => ({
     ...client,
-    assignedStaffDetails:
-      staffMap.get(client.assignedStaff) || null,
+    assignedStaffDetails: staffMap.get(client.assignedStaff) || null,
   }));
 };
 
 // Helper to parse pagination query params
 const parsePagination = (query) => {
-  const page = Math.max(
-    Number.parseInt(query.page, 10) || 1,
-    1,
-  );
+  const page = Math.max(Number.parseInt(query.page, 10) || 1, 1);
 
   const limit = Math.min(
     Math.max(Number.parseInt(query.limit, 10) || 10, 1),
@@ -175,14 +165,25 @@ exports.createClient = async (req, res) => {
       });
     }
 
-    clientData.assignedStaff = normalizeStaffId(
-      clientData.assignedStaff,
-    );
+    if (req.user?.role === "staff") {
+      const currentStaff = await Staff.findById(req.user.id)
+        .select("staffId")
+        .lean();
+
+      if (!currentStaff) {
+        return res.status(403).json({
+          success: false,
+          message: "Staff session is invalid.",
+        });
+      }
+
+      clientData.assignedStaff = currentStaff.staffId;
+    } else {
+      clientData.assignedStaff = normalizeStaffId(clientData.assignedStaff);
+    }
 
     if (clientData.assignedStaff) {
-      const staff = await findStaffByStaffId(
-        clientData.assignedStaff,
-      );
+      const staff = await findStaffByStaffId(clientData.assignedStaff);
 
       if (!staff) {
         return res.status(404).json({
@@ -199,6 +200,21 @@ exports.createClient = async (req, res) => {
       }
     }
 
+    clientData.stageHistory = [
+      {
+        status: clientData.clientStatus || "New",
+        changedBy: req.user?.role === "staff" ? req.user.id : null,
+        changedByName: req.user?.name || req.user?.email || "Admin",
+      },
+    ];
+    clientData.assignmentHistory = [
+      {
+        staffId: clientData.assignedStaff,
+        assignedBy: req.user?.role === "staff" ? req.user.id : null,
+        assignedByName: req.user?.name || req.user?.email || "Admin",
+      },
+    ];
+
     createdClient = await Client.create(clientData);
 
     createdProfile = await Profile.create({
@@ -208,9 +224,7 @@ exports.createClient = async (req, res) => {
       ...getUploadedFiles(req),
     });
 
-    const staffDetails = await findStaffByStaffId(
-      createdClient.assignedStaff,
-    );
+    const staffDetails = await findStaffByStaffId(createdClient.assignedStaff);
 
     return res.status(201).json({
       success: true,
@@ -261,36 +275,19 @@ exports.getAllClients = async (req, res) => {
   try {
     const { page, limit, skip, search } = parsePagination(req.query);
 
-    const filter = search
-      ? {
-          $or: [
-            {
-              clientId: {
-                $regex: search,
-                $options: "i",
-              },
-            },
-            {
-              fullName: {
-                $regex: search,
-                $options: "i",
-              },
-            },
-            {
-              phone: {
-                $regex: search,
-                $options: "i",
-              },
-            },
-            {
-              assignedStaff: {
-                $regex: search,
-                $options: "i",
-              },
-            },
-          ],
-        }
-      : {};
+    let filter = {};
+
+    if (search) {
+      filter = {
+        ...filter,
+        $or: [
+          { clientId: { $regex: search, $options: "i" } },
+          { fullName: { $regex: search, $options: "i" } },
+          { phone: { $regex: search, $options: "i" } },
+          { assignedStaff: { $regex: search, $options: "i" } },
+        ],
+      };
+    }
 
     const [clients, total] = await Promise.all([
       Client.find(filter)
@@ -453,7 +450,35 @@ exports.updateClient = async (req, res) => {
       });
     }
 
+    if (req.user?.role === "staff") {
+      const currentStaff = await Staff.findById(req.user.id)
+        .select("staffId")
+        .lean();
+
+      if (
+        !currentStaff ||
+        existingClient.assignedStaff !== currentStaff.staffId
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "You can only update your own clients.",
+        });
+      }
+    }
+
     const clientUpdates = selectFields(req.body, CLIENT_FIELDS);
+
+    if (
+      clientUpdates.clientStatus !== undefined &&
+      clientUpdates.clientStatus !== existingClient.clientStatus
+    ) {
+      existingClient.stageHistory.push({
+        status: clientUpdates.clientStatus,
+        changedBy: req.user?.role === "staff" ? req.user.id : null,
+        changedByName: req.user?.name || req.user?.email || "Admin",
+      });
+      await existingClient.save();
+    }
 
     if (clientUpdates.assignedStaff !== undefined) {
       clientUpdates.assignedStaff = normalizeStaffId(
@@ -461,9 +486,7 @@ exports.updateClient = async (req, res) => {
       );
 
       if (clientUpdates.assignedStaff) {
-        const staff = await findStaffByStaffId(
-          clientUpdates.assignedStaff,
-        );
+        const staff = await findStaffByStaffId(clientUpdates.assignedStaff);
 
         if (!staff) {
           return res.status(404).json({
@@ -477,6 +500,23 @@ exports.updateClient = async (req, res) => {
             success: false,
             message: "The selected staff member is inactive.",
           });
+        }
+
+        if (clientUpdates.assignedStaff !== existingClient.assignedStaff) {
+          const activeAssignment = existingClient.assignmentHistory.find(
+            (assignment) => !assignment.unassignedAt,
+          );
+
+          if (activeAssignment) {
+            activeAssignment.unassignedAt = new Date();
+          }
+
+          existingClient.assignmentHistory.push({
+            staffId: clientUpdates.assignedStaff,
+            assignedBy: req.user?.role === "staff" ? req.user.id : null,
+            assignedByName: req.user?.name || req.user?.email || "Admin",
+          });
+          await existingClient.save();
         }
       }
     }
@@ -512,9 +552,7 @@ exports.updateClient = async (req, res) => {
       });
     }
 
-    const staffDetails = await findStaffByStaffId(
-      client.assignedStaff,
-    );
+    const staffDetails = await findStaffByStaffId(client.assignedStaff);
 
     return res.status(200).json({
       success: true,
@@ -573,24 +611,31 @@ exports.assignClient = async (req, res) => {
       });
     }
 
-    const client = await Client.findOneAndUpdate(
-      { clientId },
-      {
-        $set: {
-          assignedStaff: staffId,
-        },
-      },
-      {
-        new: true,
-        runValidators: true,
-      },
-    );
+    const client = await Client.findOne({ clientId });
 
     if (!client) {
       return res.status(404).json({
         success: false,
         message: "Client not found.",
       });
+    }
+
+    if (client.assignedStaff !== staffId) {
+      const activeAssignment = client.assignmentHistory.find(
+        (assignment) => !assignment.unassignedAt,
+      );
+
+      if (activeAssignment) {
+        activeAssignment.unassignedAt = new Date();
+      }
+
+      client.assignmentHistory.push({
+        staffId,
+        assignedBy: req.user?.id || null,
+        assignedByName: req.user?.name || req.user?.email || "Admin",
+      });
+      client.assignedStaff = staffId;
+      await client.save();
     }
 
     return res.status(200).json({
