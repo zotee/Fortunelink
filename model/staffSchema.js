@@ -42,6 +42,18 @@ const staffSchema = new mongoose.Schema(
       minlength: 6,
     },
 
+    monthlyTarget: {
+      type: Number,
+      default: 500000,
+      min: 0,
+    },
+
+    monthlyCollection: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
     role: {
       type: String,
       enum: ["staff"],
@@ -53,7 +65,7 @@ const staffSchema = new mongoose.Schema(
       default: true,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 //
@@ -65,7 +77,7 @@ staffSchema.pre("save", async function () {
   const counter = await Counter.findOneAndUpdate(
     { _id: "StaffId" },
     { $inc: { sequence_value: 1 } },
-    { new: true, upsert: true }
+    { new: true, upsert: true },
   );
 
   const startValue = 122255;

@@ -4,11 +4,11 @@ const Counter = require("./CounterModel");
 const clientSchema = new mongoose.Schema(
   {
     clientId: {
-      type: String,        // ✅ String — matches "J-176587346" format
+      type: String, // ✅ String — matches "J-176587346" format
       unique: true,
       index: true,
       trim: true,
-      immutable: true,     // set once, never changes
+      immutable: true, // set once, never changes
     },
 
     fullName: {
@@ -48,8 +48,56 @@ const clientSchema = new mongoose.Schema(
         "Visa Rejected",
         "Departed",
         "Arrived in Japan",
+        "Registration Pending",
+        "Vacancy Searching",
+        "Interview Fixed",
+        "Interview Failed",
+        "Job Offer Received",
+        "Visa Documents Submitted",
+        "Visa Result Waiting",
+        "Waiting for Joining",
+        "Return to Nepal",
       ],
       default: "New",
+    },
+
+    stageHistory: [
+      {
+        status: { type: String, required: true },
+        changedAt: { type: Date, default: Date.now },
+        changedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Staff",
+          default: null,
+        },
+        changedByName: { type: String, default: "System" },
+      },
+    ],
+
+    assignmentHistory: [
+      {
+        staffId: { type: String, required: true },
+        assignedAt: { type: Date, default: Date.now },
+        unassignedAt: { type: Date, default: null },
+        assignedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Staff",
+          default: null,
+        },
+        assignedByName: { type: String, default: "System" },
+      },
+    ],
+
+    nextFollowUpDate: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+
+    nextFollowUpPurpose: {
+      type: String,
+      trim: true,
+      default: "",
     },
 
     assignedStaff: {
@@ -64,14 +112,14 @@ const clientSchema = new mongoose.Schema(
     timestamps: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
-  }
+  },
 );
 
 // ✅ Virtual populate: Client.assignedStaff ("W-122260") → Staff.staffId
 clientSchema.virtual("staff", {
   ref: "Staff",
-  localField: "assignedStaff",   // "W-122260"
-  foreignField: "staffId",       // Staff.staffId
+  localField: "assignedStaff", // "W-122260"
+  foreignField: "staffId", // Staff.staffId
   justOne: true,
 });
 
@@ -89,11 +137,11 @@ clientSchema.pre("save", async function () {
       returnDocument: "after",
       upsert: true,
       setDefaultsOnInsert: true,
-    }
+    },
   );
 
   const startValue = 176587345;
-  this.clientId = `J-${startValue + counter.sequence_value}`;  // "J-176587346"
+  this.clientId = `J-${startValue + counter.sequence_value}`; // "J-176587346"
 });
 
 module.exports = mongoose.model("Client", clientSchema);
