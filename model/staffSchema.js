@@ -53,39 +53,48 @@ const staffSchema = new mongoose.Schema(
       default: true,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  },
 );
 
-//
-// ✅ AUTO GENERATE STAFF ID
-//
+// =================================================
+// AUTO GENERATE STAFF ID
+// =================================================
+
 staffSchema.pre("save", async function () {
   if (!this.isNew) return;
 
   const counter = await Counter.findOneAndUpdate(
     { _id: "StaffId" },
     { $inc: { sequence_value: 1 } },
-    { new: true, upsert: true }
+    {
+      new: true,
+      upsert: true,
+    },
   );
 
   const startValue = 122255;
+
   this.staffId = `W-${startValue + counter.sequence_value}`;
 });
 
-//
-// ✅ HASH PASSWORD
-//
+// =================================================
+// HASH PASSWORD
+// =================================================
+
 staffSchema.pre("save", async function () {
   if (!this.isModified("password")) return;
 
   this.password = await bcrypt.hash(this.password, 10);
 });
 
-//
-// ✅ PASSWORD CHECK
-//
+// =================================================
+// PASSWORD CHECK
+// =================================================
+
 staffSchema.methods.comparePassword = async function (password) {
-  return await bcrypt.compare(password, this.password);
+  return bcrypt.compare(password, this.password);
 };
 
 module.exports = mongoose.model("Staff", staffSchema);

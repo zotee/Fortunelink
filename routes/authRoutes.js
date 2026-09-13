@@ -6,29 +6,22 @@ const authController = require("../controllers/authController");
 
 const { verifyToken, authorize } = require("../middleware/authMiddleware");
 
+// =================================================
+// PUBLIC LOGIN
+// =================================================
 
-
-// Login for both Super Admin and Staff
 router.post("/login", authController.login);
 
-
-
-router.get(
-  "/superadmin/dashboard",
-  verifyToken,
-  authorize("superadmin"),
-  authController.superAdminDashboard,
-);
-
 // =================================================
-// STAFF ONLY
+// CURRENT LOGGED-IN USER
+// Works for both Super Admin and Staff
 // =================================================
 
 router.get(
-  "/staff/dashboard",
+  "/me",
   verifyToken,
-  authorize("staff"),
-  authController.staffDashboard,
+  authorize("superadmin", "staff"),
+  authController.getCurrentUser,
 );
 
 module.exports = router;
