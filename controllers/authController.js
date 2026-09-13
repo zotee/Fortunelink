@@ -4,7 +4,7 @@ const Staff = require("../model/staffSchema");
 const Admin = require("../model/adminModel");
 
 // =================================================
-// GENERATE TOKEN
+// GENERATE JWT
 // =================================================
 
 const generateToken = (userId, role) => {
@@ -22,16 +22,13 @@ const generateToken = (userId, role) => {
 
 // =================================================
 // LOGIN
-// SUPER ADMIN + STAFF
+//
+// POST /api/auth/login
 // =================================================
 
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    // =================================================
-    // VALIDATION
-    // =================================================
 
     if (!email || !password) {
       return res.status(400).json({
@@ -46,7 +43,7 @@ exports.login = async (req, res) => {
     let role = null;
 
     // =================================================
-    // CHECK SUPER ADMIN
+    // CHECK ADMIN
     // =================================================
 
     const admin = await Admin.findOne({
@@ -109,13 +106,13 @@ exports.login = async (req, res) => {
     }
 
     // =================================================
-    // GENERATE TOKEN
+    // TOKEN
     // =================================================
 
     const token = generateToken(user._id.toString(), role);
 
     // =================================================
-    // BUILD USER RESPONSE
+    // RESPONSE USER
     // =================================================
 
     const responseUser = {
@@ -126,16 +123,13 @@ exports.login = async (req, res) => {
       isActive: user.isActive,
     };
 
-    // Staff-only fields
     if (role === "staff") {
       responseUser.staffId = user.staffId;
+
       responseUser.phone = user.phone;
+
       responseUser.location = user.location;
     }
-
-    // =================================================
-    // RESPONSE
-    // =================================================
 
     return res.status(200).json({
       success: true,
@@ -154,19 +148,27 @@ exports.login = async (req, res) => {
 };
 
 // =================================================
-// CURRENT LOGGED-IN USER
+// CURRENT USER
+//
+// GET /api/auth/me
 // =================================================
 
 exports.getCurrentUser = async (req, res) => {
   try {
-    // Do not cache authentication/account status
+    // Disable browser/proxy caching
     res.set({
       "Cache-Control": "no-store, no-cache, must-revalidate, private",
+
       Pragma: "no-cache",
+
       Expires: "0",
     });
 
     let permissions;
+
+    // =================================================
+    // SUPERADMIN PERMISSIONS
+    // =================================================
 
     if (req.user.role === "superadmin") {
       permissions = {
@@ -194,7 +196,12 @@ exports.getCurrentUser = async (req, res) => {
 
         viewReports: true,
       };
-    } else if (req.user.role === "staff") {
+    }
+
+    // =================================================
+    // STAFF PERMISSIONS
+    // =================================================
+    else if (req.user.role === "staff") {
       permissions = {
         manageStaff: false,
         createStaff: false,
@@ -202,8 +209,12 @@ exports.getCurrentUser = async (req, res) => {
         terminateStaff: false,
 
         viewAllClients: false,
-        createClient: false,
+
+        // Staff can create clients
+        createClient: true,
+
         editOwnClients: true,
+
         assignClients: false,
         reassignClients: false,
 
@@ -229,7 +240,9 @@ exports.getCurrentUser = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+
       user: req.user,
+
       permissions,
     });
   } catch (error) {
