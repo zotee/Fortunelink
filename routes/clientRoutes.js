@@ -1,10 +1,10 @@
 const express = require("express");
+
 const router = express.Router();
 
 const {
   createClient,
   getAllClients,
-  getClientsByStaff,
   getClientDetails,
   updateClient,
   deleteClient,
@@ -13,28 +13,109 @@ const {
 
 const upload = require("../middleware/upload");
 
+const { verifyToken, authorize } = require("../middleware/authMiddleware");
+
+// =================================================
+// CLIENT FILE UPLOADS
+// =================================================
+
 const clientUploads = upload.fields([
   {
     name: "clientImage",
     maxCount: 1,
   },
+
   {
     name: "cv",
     maxCount: 1,
   },
 ]);
 
-router.post("/", clientUploads, createClient);
+// =================================================
+// ALL CLIENT ROUTES REQUIRE LOGIN
+// =================================================
 
-// Admin can request all clients
-router.get("/", getAllClients);
+router.use(verifyToken);
 
-// Must be before /:clientId
-router.get("/staff/:staffId", getClientsByStaff);
-router.put("/assign/:clientId", assignClient);
+// =================================================
+// CREATE CLIENT
+//
+// SUPERADMIN:
+// must choose Staff
+//
+// STAFF:
+// automatically assigned to themselves
+//
+// POST /api/clients
+// =================================================
 
-router.get("/:clientId", getClientDetails);
-router.patch("/:clientId", clientUploads, updateClient);
-router.delete("/:clientId", deleteClient);
+router.post("/", authorize("superadmin", "staff"), clientUploads, createClient);
+
+// =================================================
+// GET CLIENT LIST
+//
+// SUPERADMIN:
+// all clients
+//
+// STAFF:
+// only their assigned clients
+//
+// GET /api/clients
+// =================================================
+
+router.get("/", authorize("superadmin", "staff"), getAllClients);
+
+// =================================================
+// ASSIGN / REASSIGN CLIENT
+//
+// SUPERADMIN ONLY
+//
+// PATCH /api/clients/J-176587346/assign
+// =================================================
+
+router.patch("/:clientId/assign", authorize("superadmin"), assignClient);
+
+// =================================================
+// GET CLIENT DETAILS
+//
+// SUPERADMIN:
+// any client
+//
+// STAFF:
+// own assigned client
+//
+// GET /api/clients/J-176587346
+// =================================================
+
+router.get("/:clientId", authorize("superadmin", "staff"), getClientDetails);
+
+// =================================================
+// UPDATE CLIENT
+//
+// SUPERADMIN:
+// any client
+//
+// STAFF:
+// own client only
+//
+// PATCH /api/clients/J-176587346
+// =================================================
+
+router.patch(
+  "/:clientId",
+  authorize("superadmin", "staff"),
+  clientUploads,
+  updateClient,
+);
+
+// =================================================
+// DELETE CLIENT
+//
+// SUPERADMIN ONLY
+//
+// DELETE /api/clients/J-176587346
+// =================================================
+
+router.delete("/:clientId", authorize("superadmin"), deleteClient);
 
 module.exports = router;

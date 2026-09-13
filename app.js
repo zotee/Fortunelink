@@ -1,6 +1,6 @@
-const dns = require("dns");
+// const dns = require("dns");
 
-dns.setServers(["8.8.8.8", "1.1.1.1"]);
+// dns.setServers(["2400:1a00:8000:4::73"]);
 
 require("dotenv").config();
 
@@ -13,17 +13,40 @@ const staffRoutes = require("./routes/staffRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const clientRoutes = require("./routes/clientRoutes");
 const remarkRoutes = require("./routes/remarkRoutes");
-
+const clientStageRoutes = require("./routes/clientStageRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
+const clientFeeRoutes = require("./routes/clientFeeRoutes");
+const staffTargetRoutes = require("./routes/staffTargetRoutes");
+const dashboardRoutes = require("./routes/dashboardRoutes");
+const createAdmin = require("./scripts/createAdmin");
 const app = express();
+
+// =================================================
+// REQUIRED ENVIRONMENT VARIABLES
+// =================================================
+
+const requiredEnv = ["MONGO_URI", "JWT_SECRET"];
+
+for (const key of requiredEnv) {
+  if (!process.env[key]) {
+    console.error(`Missing required environment variable: ${key}`);
+    process.exit(1);
+  }
+}
+
+// =================================================
+// CORS
+// =================================================
 
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://admin.world-hr.co.jp",
-];
+  process.env.FRONTEND_URL,
+].filter(Boolean);
 
 app.use(
   cors({
     origin: function (origin, callback) {
+      // Allow Postman/server-to-server requests without origin
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
@@ -31,37 +54,57 @@ app.use(
       }
     },
     credentials: true,
-  })
+  }),
 );
+
+// =================================================
+// BODY PARSERS
+// =================================================
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// =================================================
 // ROUTES
+// =================================================
+
 app.use("/api/auth", authRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/remarks", remarkRoutes);
+app.use("/api/client-stages", clientStageRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/client-fees", clientFeeRoutes);
+app.use("/api/staff-targets", staffTargetRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+// =================================================
+// HEALTH CHECK
+// =================================================
 
 app.get("/", (req, res) => {
-  res.json({
+  res.status(200).json({
     success: true,
     message: "Server is running",
   });
 });
 
-// =====================================
+// =================================================
 // ERROR HANDLER
-// =====================================
+// =================================================
+
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error("Unhandled error:", err);
 
   res.status(500).json({
     success: false,
     message: "Internal Server Error",
   });
 });
+
+// =================================================
+// SERVER
+// =================================================
 
 const PORT = process.env.PORT || 8001;
 
@@ -71,12 +114,17 @@ const startServer = async () => {
 
     console.log("Connected to MongoDB Atlas");
 
+    // Make sure Super Admin exists
+    await createAdmin();
+
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running successfully on http://localhost:${PORT}`);
+      console.log(`Server running successfully on port ${PORT}`);
     });
   } catch (error) {
-    console.error("MongoDB connection failed:");
+    console.error("Server startup failed:");
+
     console.error(error);
+
     process.exit(1);
   }
 };

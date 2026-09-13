@@ -2,26 +2,31 @@ const express = require("express");
 
 const router = express.Router();
 
-const authController = require("../controllers/authController");
+const {
+  createPayment,
+  getClientPayments,
+} = require("../controllers/paymentController");
 
 const { verifyToken, authorize } = require("../middleware/authMiddleware");
 
-// =================================================
-// PUBLIC LOGIN
-// =================================================
-
-router.post("/login", authController.login);
+router.use(verifyToken);
 
 // =================================================
-// CURRENT LOGGED-IN USER
-// Works for both Super Admin and Staff
+// CREATE PAYMENT
+// ADMIN + STAFF
+// =================================================
+
+router.post("/", authorize("superadmin", "staff"), createPayment);
+
+// =================================================
+// CLIENT PAYMENT HISTORY
+// ADMIN + STAFF
 // =================================================
 
 router.get(
-  "/me",
-  verifyToken,
+  "/client/:clientId",
   authorize("superadmin", "staff"),
-  authController.getCurrentUser,
+  getClientPayments,
 );
 
 module.exports = router;

@@ -1,25 +1,9 @@
-const mongoose = require("mongoose");
 const Client = require("../model/clientSchema");
 const Remark = require("../model/remarkSchema");
 
-// MongoDB _id of the logged-in staff/admin
-const getLoggedInUserId = (req) => {
-  return req.user?._id || req.user?.id || null;
-};
-
-// Custom staff ID, for example W-122261
-const getLoggedInStaffId = (req) => {
-  const staffId =
-    req.user?.staffId ||
-    req.user?.staff?.staffId ||
-    null;
-
-  if (!staffId) {
-    return null;
-  }
-
-  return String(staffId).trim().toUpperCase();
-};
+// =================================================
+// HELPERS
+// =================================================
 
 const normalizeClientId = (clientId) => {
   if (!clientId) {
@@ -29,46 +13,92 @@ const normalizeClientId = (clientId) => {
   return decodeURIComponent(String(clientId)).trim();
 };
 
-const isAdmin = (req) => {
-  const role = String(req.user?.role || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_-]/g, "");
-
-  return [
-    "admin",
-    "superadmin",
-    "masteradmin",
-  ].includes(role);
-};
+// =================================================
+// CLIENT ACCESS
+//
+// Super Admin:
+// can access every client
+//
+// Staff:
+// only clients assigned to themselves
+// =================================================
 
 const canAccessClient = (req, client) => {
-  if (isAdmin(req)) {
+  if (req.user.role === "superadmin") {
     return true;
   }
 
-  const loggedInStaffId = getLoggedInStaffId(req);
-
-  if (!loggedInStaffId || !client.assignedStaff) {
-    return false;
+  if (req.user.role === "staff") {
+    return client.assignedStaff === req.user.staffId;
   }
 
-  const assignedStaffId = String(client.assignedStaff)
-    .trim()
-    .toUpperCase();
-
-  return assignedStaffId === loggedInStaffId;
+  return false;
 };
 
-// =====================================
+// =================================================
+// PARSE REMARK DATE
+//
+// Frontend sends:
+//
+// 2026-09-13
+//
+// That represents the selected date in Japan.
+// =================================================
+
+const parseRemarkDate = (value) => {
+  // If frontend doesn't send a date,
+  // use current time.
+  if (!value) {
+    return new Date();
+  }
+
+  const input = String(value).trim();
+
+  let date;
+
+  // Date-only input
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    // Treat selected date as Tokyo date
+    date = new Date(`${input}T00:00:00+09:00`);
+  } else {
+    date = new Date(input);
+  }
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date;
+};
+
+// =================================================
 // CREATE REMARK
+//
 // POST /api/remarks
-// =====================================
+//
+// BODY:
+//
+// {
+//   "clientId": "J-176587355",
+//   "remarkDate": "2026-09-13",
+//   "medium": "WhatsApp",
+//   "remarks": "Client confirmed documents."
+// }
+// =================================================
+
 exports.createRemark = async (req, res) => {
   try {
     const clientId = normalizeClientId(req.body.clientId);
+
     const remarks = String(req.body.remarks || "").trim();
+
     const medium = String(req.body.medium || "").trim();
+
+    const remarkDate = parseRemarkDate(req.body.remarkDate);
+
+    // =================================================
+    // VALIDATION
+    // =================================================
 
     if (!clientId) {
       return res.status(400).json({
@@ -91,7 +121,17 @@ exports.createRemark = async (req, res) => {
       });
     }
 
-    // Search using custom client ID, for example J-176587345
+    if (!remarkDate) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid remark date.",
+      });
+    }
+
+    // =================================================
+    // FIND CLIENT
+    // =================================================
+
     const client = await Client.findOne({
       clientId,
     });
@@ -103,57 +143,89 @@ exports.createRemark = async (req, res) => {
       });
     }
 
+    // =================================================
+    // ACCESS CHECK
+    // =================================================
+
     if (!canAccessClient(req, client)) {
       return res.status(403).json({
         success: false,
-        message:
-          "You cannot add a remark to this client.",
+
+        message: "You are not authorized to add remarks to this client.",
       });
     }
 
-    const loggedInUserId = getLoggedInUserId(req);
+    // =================================================
+    // CREATOR INFORMATION
+    //
+    // NEVER trust these from frontend.
+    // Always get them from authenticated req.user.
+    // =================================================
 
-    if (!isAdmin(req) && !loggedInUserId) {
+    const createdBy = req.user.id;
+
+    const createdByRole = req.user.role;
+
+    const staffName = req.user.name;
+
+    const staffId = req.user.role === "staff" ? req.user.staffId : null;
+
+    const staffRef = req.user.role === "staff" ? req.user.id : null;
+
+    if (!createdBy || !staffName) {
       return res.status(401).json({
         success: false,
-        message: "Logged-in staff information is missing.",
+
+        message: "Authenticated user information is missing.",
       });
     }
 
-    const staffName =
-      req.user?.name ||
-      req.user?.fullName ||
-      req.user?.email ||
-      (isAdmin(req) ? "Admin" : "Staff");
+    // =================================================
+    // CREATE REMARK
+    // =================================================
 
     const remark = await Remark.create({
-      // Store the client's MongoDB ObjectId
       clientId: client._id,
 
-      // Admin remarks can have a null staffId
-      staffId: isAdmin(req) ? null : loggedInUserId,
+      clientCode: client.clientId,
+
+      createdBy,
+
+      createdByRole,
+
+      staffRef,
+
+      staffId,
 
       staffName,
-      remarks,
+
+      remarkDate,
+
       medium,
+
+      remarks,
     });
 
-    const populatedRemark = await Remark.findById(
-      remark._id
-    )
+    // =================================================
+    // RESPONSE
+    // =================================================
+
+    const savedRemark = await Remark.findById(remark._id)
       .populate({
-        path: "staffId",
-        select: "staffId name fullName email",
+        path: "staffRef",
+        select: "staffId name email",
       })
       .lean();
 
     return res.status(201).json({
       success: true,
+
       message: "Remark added successfully.",
-      data: populatedRemark,
+
+      data: savedRemark,
     });
   } catch (error) {
-    console.error("Create remark error:", error);
+    console.error("CREATE REMARK ERROR:", error);
 
     if (error.name === "ValidationError") {
       return res.status(400).json({
@@ -164,28 +236,40 @@ exports.createRemark = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message:
-        error.message || "Failed to add remark.",
+
+      message: error.message || "Failed to add remark.",
     });
   }
 };
 
-// =====================================
-// GET CLIENT REMARKS
-// GET /api/remarks/client/J-176587345
-// =====================================
+// =================================================
+// GET CLIENT REMARK HISTORY
+//
+// GET
+// /api/remarks/client/J-176587355
+//
+// Super Admin:
+// can view any client remarks
+//
+// Staff:
+// only their assigned client remarks
+// =================================================
+
 exports.getClientRemarks = async (req, res) => {
   try {
-    const clientId = normalizeClientId(
-      req.params.clientId
-    );
+    const clientId = normalizeClientId(req.params.clientId);
 
     if (!clientId) {
       return res.status(400).json({
         success: false,
+
         message: "Client ID is required.",
       });
     }
+
+    // =================================================
+    // FIND CLIENT
+    // =================================================
 
     const client = await Client.findOne({
       clientId,
@@ -194,122 +278,54 @@ exports.getClientRemarks = async (req, res) => {
     if (!client) {
       return res.status(404).json({
         success: false,
+
         message: "Client not found.",
       });
     }
 
+    // =================================================
+    // ACCESS CHECK
+    // =================================================
+
     if (!canAccessClient(req, client)) {
       return res.status(403).json({
         success: false,
-        message:
-          "You cannot access this client's remarks.",
+
+        message: "You are not authorized to access this client's remarks.",
       });
     }
+
+    // =================================================
+    // REMARK HISTORY
+    // =================================================
 
     const remarks = await Remark.find({
       clientId: client._id,
     })
       .populate({
-        path: "staffId",
-        select: "staffId name fullName email",
+        path: "staffRef",
+        select: "staffId name email",
       })
       .sort({
+        remarkDate: -1,
         createdAt: -1,
       })
       .lean();
 
     return res.status(200).json({
       success: true,
+
       count: remarks.length,
+
       data: remarks,
     });
   } catch (error) {
-    console.error("Get remarks error:", error);
+    console.error("GET REMARKS ERROR:", error);
 
     return res.status(500).json({
       success: false,
-      message:
-        error.message || "Failed to retrieve remarks.",
+
+      message: error.message || "Failed to retrieve remarks.",
     });
   }
 };
-
-// =====================================
-// DELETE REMARK
-// DELETE /api/remarks/:id
-// =====================================
-exports.deleteRemark = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid remark ID.",
-      });
-    }
-
-    const remark = await Remark.findById(id);
-
-    if (!remark) {
-      return res.status(404).json({
-        success: false,
-        message: "Remark not found.",
-      });
-    }
-
-    const client = await Client.findById(
-      remark.clientId
-    );
-
-    if (!client) {
-      return res.status(404).json({
-        success: false,
-        message: "Related client not found.",
-      });
-    }
-
-    if (!canAccessClient(req, client)) {
-      return res.status(403).json({
-        success: false,
-        message:
-          "You cannot access this client's remarks.",
-      });
-    }
-
-    const loggedInUserId = getLoggedInUserId(req);
-
-    const ownsRemark =
-      remark.staffId &&
-      loggedInUserId &&
-      String(remark.staffId) ===
-        String(loggedInUserId);
-
-    if (!isAdmin(req) && !ownsRemark) {
-      return res.status(403).json({
-        success: false,
-        message:
-          "You can only delete remarks created by you.",
-      });
-    }
-
-    await remark.deleteOne();
-
-    return res.status(200).json({
-      success: true,
-      message: "Remark deleted successfully.",
-      data: {
-        id: remark._id,
-      },
-    });
-  } catch (error) {
-    console.error("Delete remark error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message:
-        error.message || "Failed to delete remark.",
-    });
-  }
-};
-

@@ -2,26 +2,25 @@ const express = require("express");
 
 const router = express.Router();
 
-const authController = require("../controllers/authController");
+const {
+  getAdminDashboard,
+  getStaffDashboard,
+} = require("../controllers/dashboardController");
 
 const { verifyToken, authorize } = require("../middleware/authMiddleware");
 
-// =================================================
-// PUBLIC LOGIN
-// =================================================
-
-router.post("/login", authController.login);
+router.use(verifyToken);
 
 // =================================================
-// CURRENT LOGGED-IN USER
-// Works for both Super Admin and Staff
+// SUPER ADMIN DASHBOARD
 // =================================================
 
-router.get(
-  "/me",
-  verifyToken,
-  authorize("superadmin", "staff"),
-  authController.getCurrentUser,
-);
+router.get("/admin", authorize("superadmin"), getAdminDashboard);
+
+// =================================================
+// STAFF DASHBOARD
+// =================================================
+
+router.get("/staff", authorize("staff"), getStaffDashboard);
 
 module.exports = router;

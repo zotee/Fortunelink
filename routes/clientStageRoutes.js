@@ -2,26 +2,25 @@ const express = require("express");
 
 const router = express.Router();
 
-const authController = require("../controllers/authController");
+const {
+  getClientStages,
+  changeClientStage,
+} = require("../controllers/clientStageController");
 
 const { verifyToken, authorize } = require("../middleware/authMiddleware");
 
-// =================================================
-// PUBLIC LOGIN
-// =================================================
-
-router.post("/login", authController.login);
+router.use(verifyToken);
 
 // =================================================
-// CURRENT LOGGED-IN USER
-// Works for both Super Admin and Staff
+// VIEW PROGRESS
 // =================================================
 
-router.get(
-  "/me",
-  verifyToken,
-  authorize("superadmin", "staff"),
-  authController.getCurrentUser,
-);
+router.get("/:clientId", authorize("superadmin", "staff"), getClientStages);
+
+// =================================================
+// CHANGE STAGE
+// =================================================
+
+router.post("/:clientId", authorize("superadmin", "staff"), changeClientStage);
 
 module.exports = router;

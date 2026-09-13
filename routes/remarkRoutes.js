@@ -1,25 +1,50 @@
 const express = require("express");
-const remarkController = require("../controllers/remarkController");
-
-// Check if protect middleware exists and is properly exported
-let protect;
-try {
-  protect = require("../middleware/authMiddleware");
-} catch (error) {
-  console.error("Auth middleware not found:", error.message);
-  // Fallback: create a dummy middleware if needed
-  protect = (req, res, next) => next();
-}
 
 const router = express.Router();
 
-// Only use protect if it's a valid middleware
-if (typeof protect === 'function') {
-  router.use(protect);
-}
+const {
+  createRemark,
+  getClientRemarks,
+} = require("../controllers/remarkController");
 
-router.post("/", remarkController.createRemark);
-router.get("/client/:clientId", remarkController.getClientRemarks);
-router.delete("/:id", remarkController.deleteRemark);
+const { verifyToken, authorize } = require("../middleware/authMiddleware");
+
+// =================================================
+// ALL REMARK ROUTES REQUIRE LOGIN
+// =================================================
+
+router.use(verifyToken);
+
+// =================================================
+// CREATE REMARK
+//
+// Admin:
+// any client
+//
+// Staff:
+// own assigned clients
+//
+// POST /api/remarks
+// =================================================
+
+router.post("/", authorize("superadmin", "staff"), createRemark);
+
+// =================================================
+// GET REMARK HISTORY
+//
+// Admin:
+// any client
+//
+// Staff:
+// own assigned clients
+//
+// GET /api/remarks/client/J-176587355
+// =================================================
+
+router.get(
+  "/client/:clientId",
+  authorize("superadmin", "staff"),
+  getClientRemarks,
+);
 
 module.exports = router;

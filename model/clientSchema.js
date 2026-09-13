@@ -1,14 +1,15 @@
 const mongoose = require("mongoose");
 const Counter = require("./CounterModel");
+const { CLIENT_STAGES } = require("../constants/clientStages");
 
 const clientSchema = new mongoose.Schema(
   {
     clientId: {
-      type: String,        // ✅ String — matches "J-176587346" format
+      type: String,
       unique: true,
       index: true,
       trim: true,
-      immutable: true,     // set once, never changes
+      immutable: true,
     },
 
     fullName: {
@@ -35,6 +36,13 @@ const clientSchema = new mongoose.Schema(
       default: "Not Applied",
     },
 
+    currentStage: {
+      type: String,
+      enum: CLIENT_STAGES,
+      default: "Registration Pending",
+      index: true,
+    },
+
     clientStatus: {
       type: String,
       enum: [
@@ -52,9 +60,9 @@ const clientSchema = new mongoose.Schema(
       default: "New",
     },
 
+    // Stores Staff.staffId, for example W-122290
     assignedStaff: {
       type: String,
-      ref: "Staff",
       required: true,
       trim: true,
       index: true,
@@ -62,38 +70,68 @@ const clientSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true },
-  }
+
+    toJSON: {
+      virtuals: true,
+    },
+
+    toObject: {
+      virtuals: true,
+    },
+  },
 );
 
-// ✅ Virtual populate: Client.assignedStaff ("W-122260") → Staff.staffId
+// =================================================
+// STAFF VIRTUAL
+// assignedStaff = W-122290
+// Staff.staffId = W-122290
+// =================================================
+
 clientSchema.virtual("staff", {
   ref: "Staff",
-  localField: "assignedStaff",   // "W-122260"
-  foreignField: "staffId",       // Staff.staffId
+  localField: "assignedStaff",
+  foreignField: "staffId",
   justOne: true,
 });
 
-// ✅ Compound index for getStaffClients sort
-clientSchema.index({ assignedStaff: 1, createdAt: -1 });
+// =================================================
+// INDEX
+// =================================================
 
-// ✅ Auto-generate clientId as String with "J-" prefix
+clientSchema.index({
+  assignedStaff: 1,
+  createdAt: -1,
+});
+
+// =================================================
+// AUTO GENERATE CLIENT ID
+// Example: J-176587346
+// =================================================
+
 clientSchema.pre("save", async function () {
-  if (!this.isNew || this.clientId) return;
+  if (!this.isNew || this.clientId) {
+    return;
+  }
 
   const counter = await Counter.findOneAndUpdate(
-    { _id: "ClientId" },
-    { $inc: { sequence_value: 1 } },
     {
-      returnDocument: "after",
+      _id: "ClientId",
+    },
+    {
+      $inc: {
+        sequence_value: 1,
+      },
+    },
+    {
+      new: true,
       upsert: true,
       setDefaultsOnInsert: true,
-    }
+    },
   );
 
   const startValue = 176587345;
-  this.clientId = `J-${startValue + counter.sequence_value}`;  // "J-176587346"
+
+  this.clientId = `J-${startValue + counter.sequence_value}`;
 });
 
 module.exports = mongoose.model("Client", clientSchema);
