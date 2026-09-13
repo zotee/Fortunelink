@@ -1,7 +1,6 @@
 const dns = require("dns");
 
-// Local DNS fix for MongoDB Atlas SRV resolution
-dns.setServers(["192.168.1.1"]);
+dns.setServers(["2400:1a00:8000:4::73"]);
 
 require("dotenv").config();
 
@@ -14,6 +13,7 @@ const staffRoutes = require("./routes/staffRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const clientRoutes = require("./routes/clientRoutes");
 const remarkRoutes = require("./routes/remarkRoutes");
+const clientStageRoutes = require("./routes/clientStageRoutes");
 
 const app = express();
 
@@ -69,7 +69,7 @@ app.use("/api/staff", staffRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/remarks", remarkRoutes);
-
+app.use("/api/client-stages", clientStageRoutes);
 // =================================================
 // HEALTH CHECK
 // =================================================

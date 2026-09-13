@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Counter = require("./CounterModel");
+const { CLIENT_STAGES } = require("../constants/clientStages");
 
 const clientSchema = new mongoose.Schema(
   {
@@ -33,6 +34,13 @@ const clientSchema = new mongoose.Schema(
       type: String,
       enum: ["Not Applied", "Applied", "Processing", "Received", "Rejected"],
       default: "Not Applied",
+    },
+
+    currentStage: {
+      type: String,
+      enum: CLIENT_STAGES,
+      default: "Registration Pending",
+      index: true,
     },
 
     clientStatus: {
