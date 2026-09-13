@@ -159,79 +159,65 @@ exports.login = async (req, res) => {
 
 exports.getCurrentUser = async (req, res) => {
   try {
-    let permissions;
+    // Do not cache authentication/account status
+    res.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate, private",
+      Pragma: "no-cache",
+      Expires: "0",
+    });
 
-    // =================================================
-    // SUPER ADMIN PERMISSIONS
-    // =================================================
+    let permissions;
 
     if (req.user.role === "superadmin") {
       permissions = {
-        // Staff
         manageStaff: true,
         createStaff: true,
         editStaff: true,
         terminateStaff: true,
 
-        // Clients
         viewAllClients: true,
         createClient: true,
         editAnyClient: true,
         assignClients: true,
         reassignClients: true,
 
-        // Client stages
         updateAnyClientStage: true,
 
-        // Payments
         viewAllPayments: true,
         createPayment: true,
         editPayment: true,
         cancelPayment: true,
         refundPayment: true,
 
-        // Targets / Performance
         manageTargets: true,
         viewAllPerformance: true,
 
-        // Reports
         viewReports: true,
       };
-    }
-
-    // =================================================
-    // STAFF PERMISSIONS
-    // =================================================
-    else if (req.user.role === "staff") {
+    } else if (req.user.role === "staff") {
       permissions = {
-        // Staff
         manageStaff: false,
         createStaff: false,
         editStaff: false,
         terminateStaff: false,
 
-        // Clients
         viewAllClients: false,
         createClient: false,
         editOwnClients: true,
         assignClients: false,
         reassignClients: false,
 
-        // Client stages
         updateOwnClientStage: true,
 
-        // Payments
         viewAllPayments: false,
         createPayment: true,
         editPayment: false,
         cancelPayment: false,
         refundPayment: false,
 
-        // Targets / Performance
         manageTargets: false,
         viewOwnPerformance: true,
 
-        // Reports
         viewReports: false,
       };
     } else {

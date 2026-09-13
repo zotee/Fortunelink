@@ -1,14 +1,16 @@
 const mongoose = require("mongoose");
 
 const Staff = require("../model/staffSchema");
+const Admin = require("../model/adminModel");
 const Client = require("../model/clientSchema");
-const CounterModel = require("../model/CounterModel");
 
-// Find staff using MongoDB _id or generated staffId
+// =================================================
+// FIND STAFF
+// Supports MongoDB _id or generated staffId
+// =================================================
+
 const findStaff = async (id, includePassword = false) => {
-  const normalizedId = decodeURIComponent(
-    String(id || ""),
-  ).trim();
+  const normalizedId = decodeURIComponent(String(id || "")).trim();
 
   if (!normalizedId) {
     return null;
@@ -18,7 +20,9 @@ const findStaff = async (id, includePassword = false) => {
     ? {
         $or: [
           { _id: normalizedId },
-          { staffId: normalizedId.toUpperCase() },
+          {
+            staffId: normalizedId.toUpperCase(),
+          },
         ],
       }
     : {
@@ -34,13 +38,18 @@ const findStaff = async (id, includePassword = false) => {
   return query;
 };
 
-/* ============================================================
-   CREATE STAFF
-   POST /api/staff
-   ============================================================ */
+// =================================================
+// CREATE STAFF
+// POST /api/staff
+// =================================================
+
 const createStaff = async (req, res) => {
   try {
     const { name, phone, location, email, password } = req.body;
+
+    // =================================================
+    // REQUIRED FIELDS
+    // =================================================
 
     if (
       !name?.trim() ||
@@ -51,19 +60,26 @@ const createStaff = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Name, phone, location, email and password are required.",
+        message: "Name, phone, location, email and password are required.",
       });
     }
 
-    if (password.length < 6) {
+    // =================================================
+    // PASSWORD VALIDATION
+    // =================================================
+
+    if (String(password).length < 6) {
       return res.status(400).json({
         success: false,
         message: "Password must be at least 6 characters.",
       });
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // =================================================
+    // CHECK STAFF EMAIL
+    // =================================================
 
     const existingStaff = await Staff.findOne({
       email: normalizedEmail,
@@ -76,32 +92,47 @@ const createStaff = async (req, res) => {
       });
     }
 
-    const counter = await CounterModel.findOneAndUpdate(
-      { _id: "StaffId" },
-      { $inc: { sequence_value: 1 } },
-      {
-        returnDocument: "after", // ✅ replaces deprecated `new: true`
-        upsert: true,
-        setDefaultsOnInsert: true,
-      },
-    );
+    // =================================================
+    // PREVENT STAFF FROM USING ADMIN EMAIL
+    // =================================================
 
-    const generatedStaffId = `W-${counter.sequence_value}`;
+    const existingAdmin = await Admin.findOne({
+      email: normalizedEmail,
+    });
+
+    if (existingAdmin) {
+      return res.status(409).json({
+        success: false,
+        message: "This email is already used by an Admin account.",
+      });
+    }
+
+    // =================================================
+    // CREATE STAFF
+    //
+    // staffId is automatically generated
+    // inside staffSchema.js
+    //
+    // password is automatically hashed
+    // inside staffSchema.js
+    // =================================================
 
     const staff = new Staff({
-      staffId: generatedStaffId,
       name: name.trim(),
       phone: phone.trim(),
       location: location.trim(),
       email: normalizedEmail,
       password,
-      role: "staff",
-      isActive: true,
     });
 
     await staff.save();
 
+    // =================================================
+    // REMOVE PASSWORD FROM RESPONSE
+    // =================================================
+
     const staffData = staff.toObject();
+
     delete staffData.password;
 
     return res.status(201).json({
@@ -137,20 +168,21 @@ const createStaff = async (req, res) => {
   }
 };
 
-/* ============================================================
-   GET ALL STAFF WITH CLIENT COUNTS
-   GET /api/staff
-   ============================================================ */
+// =================================================
+// GET ALL STAFF
+// GET /api/staff
+// =================================================
+
 const getAllStaff = async (req, res) => {
   try {
     const staffList = await Staff.find()
       .select("-password")
-      .sort({ createdAt: -1 })
+      .sort({
+        createdAt: -1,
+      })
       .lean();
 
-    const staffIds = staffList
-      .map((staff) => staff.staffId)
-      .filter(Boolean);
+    const staffIds = staffList.map((staff) => staff.staffId).filter(Boolean);
 
     const clientCounts = await Client.aggregate([
       {
@@ -171,16 +203,13 @@ const getAllStaff = async (req, res) => {
     ]);
 
     const clientCountMap = new Map(
-      clientCounts.map((item) => [
-        item._id,
-        item.totalClients,
-      ]),
+      clientCounts.map((item) => [item._id, item.totalClients]),
     );
 
     const result = staffList.map((staff) => ({
       ...staff,
-      totalClients:
-        clientCountMap.get(staff.staffId) || 0,
+
+      totalClients: clientCountMap.get(staff.staffId) || 0,
     }));
 
     return res.status(200).json({
@@ -198,10 +227,11 @@ const getAllStaff = async (req, res) => {
   }
 };
 
-/* ============================================================
-   GET ONE STAFF WITH CLIENT LIST
-   GET /api/staff/W-122257
-   ============================================================ */
+// =================================================
+// GET ONE STAFF
+// GET /api/staff/W-122257
+// =================================================
+
 const getOneStaff = async (req, res) => {
   try {
     const staff = await findStaff(req.params.id);
@@ -216,14 +246,19 @@ const getOneStaff = async (req, res) => {
     const clients = await Client.find({
       assignedStaff: staff.staffId,
     })
-      .sort({ createdAt: -1 })
+      .sort({
+        createdAt: -1,
+      })
       .lean();
 
     return res.status(200).json({
       success: true,
+
       data: {
         ...staff.toObject(),
+
         totalClients: clients.length,
+
         clients,
       },
     });
@@ -237,10 +272,11 @@ const getOneStaff = async (req, res) => {
   }
 };
 
-/* ============================================================
-   GET CLIENTS ASSIGNED TO ONE STAFF
-   GET /api/staff/W-122257/clients?page=1&limit=10&search=
-   ============================================================ */
+// =================================================
+// GET CLIENTS ASSIGNED TO STAFF
+// GET /api/staff/:id/clients
+// =================================================
+
 const getStaffClients = async (req, res) => {
   try {
     const staff = await findStaff(req.params.id);
@@ -252,42 +288,61 @@ const getStaffClients = async (req, res) => {
       });
     }
 
-    const page = Math.max(
-      Number.parseInt(req.query.page, 10) || 1,
-      1,
-    );
+    const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
 
     const limit = Math.min(
-      Math.max(
-        Number.parseInt(req.query.limit, 10) || 10,
-        1,
-      ),
+      Math.max(Number.parseInt(req.query.limit, 10) || 10, 1),
       100,
     );
 
     const skip = (page - 1) * limit;
+
     const search = String(req.query.search || "").trim();
 
     const filter = {
       assignedStaff: staff.staffId,
     };
 
-    // ✅ UPDATED SEARCH BLOCK
-    // Removed Number(search) logic — clientId is now a String ("J-176587346")
     if (search) {
       filter.$or = [
-        { fullName: { $regex: search, $options: "i" } },
-        { phone: { $regex: search, $options: "i" } },
-        { visaType: { $regex: search, $options: "i" } },
-        { clientStatus: { $regex: search, $options: "i" } },
-        { clientId: { $regex: search, $options: "i" } }, // ✅ matches "J-176" too
+        {
+          fullName: {
+            $regex: search,
+            $options: "i",
+          },
+        },
+        {
+          phone: {
+            $regex: search,
+            $options: "i",
+          },
+        },
+        {
+          visaType: {
+            $regex: search,
+            $options: "i",
+          },
+        },
+        {
+          clientStatus: {
+            $regex: search,
+            $options: "i",
+          },
+        },
+        {
+          clientId: {
+            $regex: search,
+            $options: "i",
+          },
+        },
       ];
     }
-    // ✅ END UPDATED SEARCH BLOCK
 
     const [clients, total] = await Promise.all([
       Client.find(filter)
-        .sort({ createdAt: -1 })
+        .sort({
+          createdAt: -1,
+        })
         .skip(skip)
         .limit(limit)
         .lean(),
@@ -297,6 +352,7 @@ const getStaffClients = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+
       staff: {
         _id: staff._id,
         staffId: staff.staffId,
@@ -306,8 +362,11 @@ const getStaffClients = async (req, res) => {
         location: staff.location,
         isActive: staff.isActive,
       },
+
       count: clients.length,
+
       data: clients,
+
       pagination: {
         page,
         limit,
@@ -320,16 +379,16 @@ const getStaffClients = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message:
-        error.message || "Failed to get staff clients.",
+      message: error.message || "Failed to get staff clients.",
     });
   }
 };
 
-/* ============================================================
-   UPDATE STAFF
-   PATCH /api/staff/W-122257
-   ============================================================ */
+// =================================================
+// UPDATE STAFF INFORMATION
+// PATCH /api/staff/:id
+// =================================================
+
 const updateStaff = async (req, res) => {
   try {
     const staff = await findStaff(req.params.id, true);
@@ -341,14 +400,11 @@ const updateStaff = async (req, res) => {
       });
     }
 
-    const {
-      name,
-      phone,
-      location,
-      email,
-      password,
-      isActive,
-    } = req.body;
+    const { name, phone, location, email, password } = req.body;
+
+    // =================================================
+    // NAME
+    // =================================================
 
     if (name !== undefined) {
       if (!String(name).trim()) {
@@ -361,6 +417,10 @@ const updateStaff = async (req, res) => {
       staff.name = String(name).trim();
     }
 
+    // =================================================
+    // PHONE
+    // =================================================
+
     if (phone !== undefined) {
       if (!String(phone).trim()) {
         return res.status(400).json({
@@ -371,6 +431,10 @@ const updateStaff = async (req, res) => {
 
       staff.phone = String(phone).trim();
     }
+
+    // =================================================
+    // LOCATION
+    // =================================================
 
     if (location !== undefined) {
       if (!String(location).trim()) {
@@ -383,10 +447,12 @@ const updateStaff = async (req, res) => {
       staff.location = String(location).trim();
     }
 
+    // =================================================
+    // EMAIL
+    // =================================================
+
     if (email !== undefined) {
-      const normalizedEmail = String(email)
-        .toLowerCase()
-        .trim();
+      const normalizedEmail = String(email).trim().toLowerCase();
 
       if (!normalizedEmail) {
         return res.status(400).json({
@@ -395,42 +461,60 @@ const updateStaff = async (req, res) => {
         });
       }
 
-      const existingEmail = await Staff.findOne({
+      const existingStaff = await Staff.findOne({
         email: normalizedEmail,
-        _id: { $ne: staff._id },
+
+        _id: {
+          $ne: staff._id,
+        },
       });
 
-      if (existingEmail) {
+      if (existingStaff) {
         return res.status(409).json({
           success: false,
-          message:
-            "Another staff member already uses this email.",
+          message: "Another staff member already uses this email.",
+        });
+      }
+
+      const existingAdmin = await Admin.findOne({
+        email: normalizedEmail,
+      });
+
+      if (existingAdmin) {
+        return res.status(409).json({
+          success: false,
+          message: "This email is already used by an Admin account.",
         });
       }
 
       staff.email = normalizedEmail;
     }
 
+    // =================================================
+    // PASSWORD
+    // =================================================
+
     if (password !== undefined && password !== "") {
       if (String(password).length < 6) {
         return res.status(400).json({
           success: false,
-          message:
-            "Password must be at least 6 characters.",
+          message: "Password must be at least 6 characters.",
         });
       }
 
+      // staffSchema pre-save hook
+      // will automatically hash this
       staff.password = password;
     }
 
-    if (isActive !== undefined) {
-      staff.isActive =
-        isActive === true || isActive === "true";
-    }
+    // =================================================
+    // SAVE
+    // =================================================
 
     await staff.save();
 
     const staffData = staff.toObject();
+
     delete staffData.password;
 
     const totalClients = await Client.countDocuments({
@@ -439,7 +523,9 @@ const updateStaff = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+
       message: "Staff updated successfully.",
+
       data: {
         ...staffData,
         totalClients,
@@ -451,7 +537,9 @@ const updateStaff = async (req, res) => {
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
+
         message: "Email or Staff ID already exists.",
+
         duplicateFields: error.keyValue || {},
       });
     }
@@ -465,16 +553,18 @@ const updateStaff = async (req, res) => {
 
     return res.status(500).json({
       success: false,
+
       message: error.message || "Failed to update staff.",
     });
   }
 };
 
-/* ============================================================
-   DELETE STAFF
-   DELETE /api/staff/W-122257
-   ============================================================ */
-const deleteStaff = async (req, res) => {
+// =================================================
+// UPDATE STAFF ACTIVE STATUS
+// PATCH /api/staff/:id/status
+// =================================================
+
+const updateStaffStatus = async (req, res) => {
   try {
     const staff = await findStaff(req.params.id, true);
 
@@ -485,31 +575,41 @@ const deleteStaff = async (req, res) => {
       });
     }
 
-    const clientCount = await Client.countDocuments({
-      assignedStaff: staff.staffId,
-    });
+    const { isActive } = req.body;
 
-    if (clientCount > 0) {
+    if (typeof isActive !== "boolean") {
       return res.status(400).json({
         success: false,
-        message:
-          "This staff has assigned clients. Reassign the clients before deleting the staff.",
-        totalClients: clientCount,
+        message: "isActive must be true or false.",
       });
     }
 
-    await Staff.findByIdAndDelete(staff._id);
+    staff.isActive = isActive;
+
+    await staff.save();
 
     return res.status(200).json({
       success: true,
-      message: "Staff deleted successfully.",
+
+      message: isActive
+        ? "Staff account activated successfully."
+        : "Staff account disabled successfully.",
+
+      data: {
+        _id: staff._id,
+        staffId: staff.staffId,
+        name: staff.name,
+        email: staff.email,
+        isActive: staff.isActive,
+      },
     });
   } catch (error) {
-    console.error("DELETE STAFF ERROR:", error);
+    console.error("UPDATE STAFF STATUS ERROR:", error);
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to delete staff.",
+
+      message: error.message || "Failed to update staff status.",
     });
   }
 };
@@ -520,5 +620,5 @@ module.exports = {
   getOneStaff,
   getStaffClients,
   updateStaff,
-  deleteStaff,
+  updateStaffStatus,
 };

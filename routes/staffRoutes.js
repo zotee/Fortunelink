@@ -6,30 +6,62 @@ const {
   getOneStaff,
   getStaffClients,
   updateStaff,
-  deleteStaff,
+  updateStaffStatus,
 } = require("../controllers/staffController");
+
+const { verifyToken, authorize } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
+// =================================================
+// ALL STAFF MANAGEMENT ROUTES:
+// SUPER ADMIN ONLY
+// =================================================
+
+router.use(verifyToken, authorize("superadmin"));
+
+// =================================================
+// CREATE STAFF
 // POST /api/staff
+// =================================================
+
 router.post("/", createStaff);
 
+// =================================================
+// GET ALL STAFF
 // GET /api/staff
+// =================================================
+
 router.get("/", getAllStaff);
 
-/*
- * IMPORTANT:
- * This must be above router.get("/:id")
- */
+// =================================================
+// GET STAFF CLIENTS
+// Keep above /:id
+// GET /api/staff/:id/clients
+// =================================================
+
 router.get("/:id/clients", getStaffClients);
 
-// GET /api/staff/W-122265
+// =================================================
+// UPDATE STAFF STATUS
+// Keep above /:id if desired for clarity
+// PATCH /api/staff/:id/status
+// =================================================
+
+router.patch("/:id/status", updateStaffStatus);
+
+// =================================================
+// GET ONE STAFF
+// GET /api/staff/:id
+// =================================================
+
 router.get("/:id", getOneStaff);
 
-// PATCH /api/staff/W-122265
-router.patch("/:id", updateStaff);
+// =================================================
+// UPDATE STAFF
+// PATCH /api/staff/:id
+// =================================================
 
-// DELETE /api/staff/W-122265
-router.delete("/:id", deleteStaff);
+router.patch("/:id", updateStaff);
 
 module.exports = router;
