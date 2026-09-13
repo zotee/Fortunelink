@@ -1,6 +1,6 @@
-const dns = require("dns");
+// const dns = require("dns");
 
-dns.setServers(["2400:1a00:8000:4::73"]);
+// dns.setServers(["2400:1a00:8000:4::73"]);
 
 require("dotenv").config();
 
