@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 const Client = require("../model/clientSchema");
 const ClientFee = require("../model/clientFeeSchema");
-
+const Payment = require("../model/paymentSchema");
 // =================================================
 // HELPERS
 // =================================================
@@ -237,6 +237,10 @@ exports.getClientFees = async (req, res) => {
       });
     }
 
+    // =================================================
+    // FEES
+    // =================================================
+
     const fees = await ClientFee.find({
       clientRef: client._id,
     })
@@ -246,20 +250,112 @@ exports.getClientFees = async (req, res) => {
       })
       .lean();
 
-    const totalExpected = fees
-      .filter((fee) => fee.status === "Active")
-      .reduce((total, fee) => total + Number(fee.expectedAmount || 0), 0);
+    const feeIds = fees.map((fee) => fee._id);
+
+    // =================================================
+    // PAYMENT TOTALS GROUPED BY FEE
+    // =================================================
+
+    let paidByFee = [];
+
+    if (feeIds.length > 0) {
+      paidByFee = await Payment.aggregate([
+        {
+          $match: {
+            clientRef: client._id,
+
+            clientFeeRef: {
+              $in: feeIds,
+            },
+
+            paymentStatus: "Completed",
+          },
+        },
+
+        {
+          $group: {
+            _id: "$clientFeeRef",
+
+            paidAmount: {
+              $sum: "$amountPaid",
+            },
+          },
+        },
+      ]);
+    }
+
+    const paidMap = new Map(
+      paidByFee.map((item) => [String(item._id), Number(item.paidAmount || 0)]),
+    );
+
+    // =================================================
+    // ENRICH FEES
+    // =================================================
+
+    const enrichedFees = fees.map((fee) => {
+      const paidAmount = paidMap.get(String(fee._id)) || 0;
+
+      const outstandingAmount =
+        fee.status === "Cancelled"
+          ? 0
+          : Math.max(Number(fee.expectedAmount) - paidAmount, 0);
+
+      let paymentProgressStatus;
+
+      if (fee.status === "Cancelled") {
+        paymentProgressStatus = "Cancelled";
+      } else if (paidAmount <= 0) {
+        paymentProgressStatus = "Unpaid";
+      } else if (paidAmount < fee.expectedAmount) {
+        paymentProgressStatus = "Partial";
+      } else {
+        paymentProgressStatus = "Paid";
+      }
+
+      return {
+        ...fee,
+
+        paidAmount,
+
+        outstandingAmount,
+
+        paymentProgressStatus,
+      };
+    });
+
+    // =================================================
+    // SUMMARY
+    // =================================================
+
+    const activeFees = enrichedFees.filter((fee) => fee.status === "Active");
+
+    const totalExpected = activeFees.reduce(
+      (total, fee) => total + Number(fee.expectedAmount || 0),
+      0,
+    );
+
+    const totalPaid = activeFees.reduce(
+      (total, fee) => total + Number(fee.paidAmount || 0),
+      0,
+    );
+
+    const totalOutstanding = activeFees.reduce(
+      (total, fee) => total + Number(fee.outstandingAmount || 0),
+      0,
+    );
 
     return res.status(200).json({
       success: true,
 
-      count: fees.length,
+      count: enrichedFees.length,
 
       summary: {
         totalExpected,
+        totalPaid,
+        totalOutstanding,
       },
 
-      data: fees,
+      data: enrichedFees,
     });
   } catch (error) {
     console.error("GET CLIENT FEES ERROR:", error);
@@ -345,6 +441,40 @@ exports.updateClientFee = async (req, res) => {
           success: false,
 
           message: "Expected amount must be greater than 0.",
+        });
+      }
+
+      // ===============================================
+      // DO NOT ALLOW EXPECTED BELOW ALREADY PAID
+      // ===============================================
+
+      const paymentSummary = await Payment.aggregate([
+        {
+          $match: {
+            clientFeeRef: fee._id,
+
+            paymentStatus: "Completed",
+          },
+        },
+
+        {
+          $group: {
+            _id: null,
+
+            totalPaid: {
+              $sum: "$amountPaid",
+            },
+          },
+        },
+      ]);
+
+      const alreadyPaid = paymentSummary[0]?.totalPaid ?? 0;
+
+      if (expectedAmount < alreadyPaid) {
+        return res.status(400).json({
+          success: false,
+
+          message: `Expected amount cannot be less than the already paid amount of ${alreadyPaid}.`,
         });
       }
 

@@ -21,9 +21,21 @@ const paymentSchema = new mongoose.Schema(
     },
 
     // =================================================
-    // PAYMENT
+    // FEE REQUIREMENT
     // =================================================
 
+    // null is allowed only so existing old payments
+    // do not break after adding this field.
+    clientFeeRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ClientFee",
+      default: null,
+      index: true,
+    },
+
+    // Snapshots.
+    // Even if the fee is renamed later,
+    // old payment history stays unchanged.
     paymentName: {
       type: String,
       required: true,
@@ -62,7 +74,7 @@ const paymentSchema = new mongoose.Schema(
     },
 
     // =================================================
-    // CLIENT STAGE SNAPSHOT
+    // STAGE SNAPSHOT
     // =================================================
 
     stageAtPayment: {
@@ -72,7 +84,7 @@ const paymentSchema = new mongoose.Schema(
     },
 
     // =================================================
-    // WHO RECORDED PAYMENT
+    // RECORDED BY
     // =================================================
 
     collectedBy: {
@@ -82,8 +94,8 @@ const paymentSchema = new mongoose.Schema(
 
     collectedByRole: {
       type: String,
-      required: true,
       enum: ["superadmin", "staff"],
+      required: true,
     },
 
     collectedByName: {
@@ -93,7 +105,7 @@ const paymentSchema = new mongoose.Schema(
     },
 
     // =================================================
-    // STAFF WHO GETS CREDIT
+    // STAFF CREDIT
     // =================================================
 
     creditedStaffRef: {
@@ -153,6 +165,11 @@ paymentSchema.index({
   clientRef: 1,
   paymentDate: -1,
   createdAt: -1,
+});
+
+paymentSchema.index({
+  clientFeeRef: 1,
+  paymentStatus: 1,
 });
 
 paymentSchema.index({

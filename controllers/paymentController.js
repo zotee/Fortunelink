@@ -1,6 +1,9 @@
+const mongoose = require("mongoose");
+
 const Client = require("../model/clientSchema");
 const Staff = require("../model/staffSchema");
 const Payment = require("../model/paymentSchema");
+const ClientFee = require("../model/clientFeeSchema");
 
 // =================================================
 // CONSTANTS
@@ -43,7 +46,6 @@ const parsePaymentDate = (value) => {
     return new Date();
   }
 
-  // YYYY-MM-DD treated as Japan date
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     const date = new Date(`${value}T00:00:00+09:00`);
 
@@ -56,6 +58,34 @@ const parsePaymentDate = (value) => {
 };
 
 // =================================================
+// GET AMOUNT ALREADY PAID FOR FEE
+// =================================================
+
+const getFeePaidAmount = async (feeId) => {
+  const result = await Payment.aggregate([
+    {
+      $match: {
+        clientFeeRef: new mongoose.Types.ObjectId(feeId),
+
+        paymentStatus: "Completed",
+      },
+    },
+
+    {
+      $group: {
+        _id: null,
+
+        totalPaid: {
+          $sum: "$amountPaid",
+        },
+      },
+    },
+  ]);
+
+  return result[0]?.totalPaid ?? 0;
+};
+
+// =================================================
 // CREATE PAYMENT
 //
 // POST /api/payments
@@ -65,9 +95,7 @@ exports.createPayment = async (req, res) => {
   try {
     const clientId = normalizeClientId(req.body.clientId);
 
-    const paymentName = String(req.body.paymentName || "").trim();
-
-    const expectedAmount = Number(req.body.expectedAmount);
+    const feeId = String(req.body.feeId || "").trim();
 
     const amountPaid = Number(req.body.amountPaid);
 
@@ -94,17 +122,10 @@ exports.createPayment = async (req, res) => {
       });
     }
 
-    if (!paymentName) {
+    if (!feeId || !mongoose.Types.ObjectId.isValid(feeId)) {
       return res.status(400).json({
         success: false,
-        message: "Payment name is required.",
-      });
-    }
-
-    if (!Number.isFinite(expectedAmount) || expectedAmount < 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Expected amount must be a valid positive amount.",
+        message: "A valid fee is required.",
       });
     }
 
@@ -137,7 +158,7 @@ exports.createPayment = async (req, res) => {
     }
 
     // =================================================
-    // FIND CLIENT
+    // CLIENT
     // =================================================
 
     const client = await Client.findOne({
@@ -151,10 +172,6 @@ exports.createPayment = async (req, res) => {
       });
     }
 
-    // =================================================
-    // ACCESS
-    // =================================================
-
     if (!canAccessClient(req, client)) {
       return res.status(403).json({
         success: false,
@@ -163,7 +180,50 @@ exports.createPayment = async (req, res) => {
     }
 
     // =================================================
-    // CREDIT CURRENT ASSIGNED STAFF
+    // FEE
+    // =================================================
+
+    const fee = await ClientFee.findOne({
+      _id: feeId,
+
+      clientRef: client._id,
+
+      status: "Active",
+    });
+
+    if (!fee) {
+      return res.status(404).json({
+        success: false,
+        message: "Active fee requirement not found for this client.",
+      });
+    }
+
+    // =================================================
+    // ALREADY PAID / OUTSTANDING
+    // =================================================
+
+    const alreadyPaid = await getFeePaidAmount(fee._id);
+
+    const outstandingAmount = Math.max(fee.expectedAmount - alreadyPaid, 0);
+
+    if (outstandingAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+
+        message: "This fee has already been fully paid.",
+      });
+    }
+
+    if (amountPaid > outstandingAmount) {
+      return res.status(400).json({
+        success: false,
+
+        message: `Payment exceeds the outstanding amount of ${outstandingAmount}.`,
+      });
+    }
+
+    // =================================================
+    // ASSIGNED STAFF
     // =================================================
 
     const staff = await Staff.findOne({
@@ -188,9 +248,12 @@ exports.createPayment = async (req, res) => {
 
       clientId: client.clientId,
 
-      paymentName,
+      clientFeeRef: fee._id,
 
-      expectedAmount,
+      // snapshots
+      paymentName: fee.feeName,
+
+      expectedAmount: fee.expectedAmount,
 
       amountPaid,
 
@@ -223,14 +286,29 @@ exports.createPayment = async (req, res) => {
       note,
     });
 
+    const newTotalPaid = alreadyPaid + amountPaid;
+
+    const newOutstanding = Math.max(fee.expectedAmount - newTotalPaid, 0);
+
     const populatedPayment = await Payment.findById(payment._id)
       .populate("creditedStaffRef", "staffId name email")
+      .populate("clientFeeRef", "feeName expectedAmount status dueDate")
       .lean();
 
     return res.status(201).json({
       success: true,
 
       message: "Payment recorded successfully.",
+
+      summary: {
+        feeExpected: fee.expectedAmount,
+
+        totalPaid: newTotalPaid,
+
+        outstanding: newOutstanding,
+
+        paymentProgressStatus: newOutstanding === 0 ? "Paid" : "Partial",
+      },
 
       data: populatedPayment,
     });
@@ -246,6 +324,7 @@ exports.createPayment = async (req, res) => {
 
     return res.status(500).json({
       success: false,
+
       message: error.message || "Failed to record payment.",
     });
   }
@@ -282,6 +361,7 @@ exports.getClientPayments = async (req, res) => {
     if (!canAccessClient(req, client)) {
       return res.status(403).json({
         success: false,
+
         message: "You are not authorized to view this client's payments.",
       });
     }
@@ -290,16 +370,12 @@ exports.getClientPayments = async (req, res) => {
       clientRef: client._id,
     })
       .populate("creditedStaffRef", "staffId name email")
+      .populate("clientFeeRef", "feeName expectedAmount status dueDate")
       .sort({
         paymentDate: -1,
         createdAt: -1,
       })
       .lean();
-
-    // =================================================
-    // SUMMARY
-    // Only completed payments count here.
-    // =================================================
 
     const totalPaid = payments
       .filter((payment) => payment.paymentStatus === "Completed")
@@ -321,6 +397,7 @@ exports.getClientPayments = async (req, res) => {
 
     return res.status(500).json({
       success: false,
+
       message: error.message || "Failed to get client payments.",
     });
   }
