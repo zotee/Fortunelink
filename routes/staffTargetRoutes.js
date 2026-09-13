@@ -5,6 +5,7 @@ const router = express.Router();
 const {
   createStaffTarget,
   getStaffTarget,
+  getStaffPerformanceHistory,
   updateStaffTarget,
 } = require("../controllers/staffTargetController");
 
@@ -19,6 +20,12 @@ router.use(verifyToken);
 // =================================================
 
 router.get("/staff/:staffId", authorize("superadmin", "staff"), getStaffTarget);
+
+router.get(
+  "/staff/:staffId/history",
+  authorize("superadmin", "staff"),
+  getStaffPerformanceHistory,
+);
 
 // =================================================
 // CREATE TARGET

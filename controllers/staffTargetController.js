@@ -480,3 +480,246 @@ exports.updateStaffTarget = async (req, res) => {
     });
   }
 };
+
+// =================================================
+// GET STAFF PERFORMANCE HISTORY
+//
+// GET
+// /api/staff-targets/staff/W-122290/history?limit=12
+//
+// ADMIN:
+// Any staff
+//
+// STAFF:
+// Only themselves
+// =================================================
+
+exports.getStaffPerformanceHistory = async (req, res) => {
+  try {
+    const staffId = normalizeStaffId(req.params.staffId);
+
+    const requestedLimit = Number(req.query.limit || 12);
+
+    const limit =
+      Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? Math.min(requestedLimit, 60)
+        : 12;
+
+    if (!staffId) {
+      return res.status(400).json({
+        success: false,
+        message: "Staff ID is required.",
+      });
+    }
+
+    // =============================================
+    // ACCESS
+    // =============================================
+
+    if (req.user.role === "staff" && req.user.staffId !== staffId) {
+      return res.status(403).json({
+        success: false,
+
+        message:
+          "You are not authorized to view another staff member's performance.",
+      });
+    }
+
+    // =============================================
+    // STAFF
+    // =============================================
+
+    const staff = await Staff.findOne({
+      staffId,
+    })
+      .select("_id staffId name email isActive")
+      .lean();
+
+    if (!staff) {
+      return res.status(404).json({
+        success: false,
+        message: "Staff not found.",
+      });
+    }
+
+    // =============================================
+    // TARGETS
+    // =============================================
+
+    const targets = await StaffTarget.find({
+      staffId,
+    })
+      .sort({
+        targetMonth: -1,
+      })
+      .lean();
+
+    // =============================================
+    // PAYMENTS GROUPED BY JAPAN MONTH
+    // =============================================
+
+    const paymentHistory = await Payment.aggregate([
+      {
+        $match: {
+          creditedStaff: staffId,
+
+          paymentStatus: "Completed",
+        },
+      },
+
+      {
+        $group: {
+          _id: {
+            $dateToString: {
+              format: "%Y-%m",
+
+              date: "$paymentDate",
+
+              timezone: "Asia/Tokyo",
+            },
+          },
+
+          totalCollected: {
+            $sum: "$amountPaid",
+          },
+
+          paymentCount: {
+            $sum: 1,
+          },
+
+          clientIds: {
+            $addToSet: "$clientId",
+          },
+        },
+      },
+
+      {
+        $sort: {
+          _id: -1,
+        },
+      },
+    ]);
+
+    // =============================================
+    // MAP TARGETS
+    // =============================================
+
+    const targetMap = new Map(
+      targets.map((target) => [target.targetMonth, target]),
+    );
+
+    // =============================================
+    // MAP PAYMENTS
+    // =============================================
+
+    const paymentMap = new Map(
+      paymentHistory.map((item) => [
+        item._id,
+        {
+          totalCollected: Number(item.totalCollected || 0),
+
+          paymentCount: Number(item.paymentCount || 0),
+
+          clientCount: item.clientIds?.length || 0,
+        },
+      ]),
+    );
+
+    // =============================================
+    // UNION OF ALL MONTHS
+    // =============================================
+
+    const months = Array.from(
+      new Set([
+        ...targets.map((target) => target.targetMonth),
+
+        ...paymentHistory.map((item) => item._id),
+      ]),
+    ).sort((a, b) => b.localeCompare(a));
+
+    // =============================================
+    // BUILD HISTORY
+    // =============================================
+
+    const history = months
+      .map((month) => {
+        const target = targetMap.get(month);
+
+        const payment = paymentMap.get(month);
+
+        const targetAmount = Number(target?.targetAmount || 0);
+
+        const totalCollected = Number(payment?.totalCollected || 0);
+
+        const remainingAmount = Math.max(targetAmount - totalCollected, 0);
+
+        const achievementPercentage =
+          targetAmount > 0
+            ? Number(((totalCollected / targetAmount) * 100).toFixed(2))
+            : 0;
+
+        let status = "No Target";
+
+        if (targetAmount > 0) {
+          if (totalCollected >= targetAmount) {
+            status = "Achieved";
+          } else if (totalCollected > 0) {
+            status = "In Progress";
+          } else {
+            status = "Not Started";
+          }
+        }
+
+        return {
+          month,
+
+          targetId: target?._id || null,
+
+          targetAmount,
+
+          totalCollected,
+
+          remainingAmount,
+
+          achievementPercentage,
+
+          paymentCount: payment?.paymentCount || 0,
+
+          clientCount: payment?.clientCount || 0,
+
+          status,
+
+          note: target?.note || "",
+
+          assignedByName: target?.assignedByName || null,
+        };
+      })
+      .slice(0, limit);
+
+    return res.status(200).json({
+      success: true,
+
+      staff: {
+        staffId: staff.staffId,
+
+        name: staff.name,
+
+        email: staff.email,
+
+        isActive: staff.isActive,
+      },
+
+      count: history.length,
+
+      data: history,
+    });
+  } catch (error) {
+    console.error("GET STAFF PERFORMANCE HISTORY ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+
+      message: error.message || "Failed to get staff performance history.",
+    });
+  }
+};
