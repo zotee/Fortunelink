@@ -15,6 +15,8 @@ const clientRoutes = require("./routes/clientRoutes");
 const remarkRoutes = require("./routes/remarkRoutes");
 const clientStageRoutes = require("./routes/clientStageRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
+const clientFeeRoutes = require("./routes/clientFeeRoutes");
+
 const app = express();
 
 // =================================================
@@ -71,6 +73,7 @@ app.use("/api/clients", clientRoutes);
 app.use("/api/remarks", remarkRoutes);
 app.use("/api/client-stages", clientStageRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/client-fees", clientFeeRoutes);
 // =================================================
 // HEALTH CHECK
 // =================================================
