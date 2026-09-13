@@ -2,14 +2,25 @@ const express = require("express");
 
 const router = express.Router();
 
-const { getAdminDashboard } = require("../controllers/dashboardController");
+const {
+  getAdminDashboard,
+  getStaffDashboard,
+} = require("../controllers/dashboardController");
 
 const { verifyToken, authorize } = require("../middleware/authMiddleware");
 
+router.use(verifyToken);
+
 // =================================================
-// ADMIN DASHBOARD ONLY
+// SUPER ADMIN DASHBOARD
 // =================================================
 
-router.get("/admin", verifyToken, authorize("superadmin"), getAdminDashboard);
+router.get("/admin", authorize("superadmin"), getAdminDashboard);
+
+// =================================================
+// STAFF DASHBOARD
+// =================================================
+
+router.get("/staff", authorize("staff"), getStaffDashboard);
 
 module.exports = router;

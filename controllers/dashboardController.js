@@ -441,3 +441,343 @@ exports.getAdminDashboard = async (req, res) => {
     });
   }
 };
+// =================================================
+// STAFF DASHBOARD
+//
+// GET /api/dashboard/staff?month=2026-09
+//
+// STAFF ONLY
+// =================================================
+
+exports.getStaffDashboard = async (req, res) => {
+  try {
+    const staffId = req.user.staffId;
+
+    if (!staffId) {
+      return res.status(400).json({
+        success: false,
+        message: "Staff ID is missing from the authenticated account.",
+      });
+    }
+
+    const selectedMonth = String(
+      req.query.month || getCurrentJapanMonth(),
+    ).trim();
+
+    if (!isValidMonth(selectedMonth)) {
+      return res.status(400).json({
+        success: false,
+        message: "Month must be in YYYY-MM format.",
+      });
+    }
+
+    const { start, end } = getJapanMonthRange(selectedMonth);
+
+    // =================================================
+    // STAFF
+    // =================================================
+
+    const staff = await Staff.findOne({
+      staffId,
+    })
+      .select("_id staffId name email phone location isActive")
+      .lean();
+
+    if (!staff) {
+      return res.status(404).json({
+        success: false,
+        message: "Staff account not found.",
+      });
+    }
+
+    // =================================================
+    // ASSIGNED CLIENTS
+    // =================================================
+
+    const assignedClients = await Client.find({
+      assignedStaff: staffId,
+    })
+      .select("_id clientId fullName phone visaType currentStage createdAt")
+      .sort({
+        createdAt: -1,
+      })
+      .lean();
+
+    const totalAssignedClients = assignedClients.length;
+
+    const clientObjectIds = assignedClients.map((client) => client._id);
+
+    // =================================================
+    // STAGE BREAKDOWN
+    // =================================================
+
+    const stageMap = new Map();
+
+    for (const client of assignedClients) {
+      const stage = client.currentStage || "Registration Pending";
+
+      stageMap.set(stage, (stageMap.get(stage) || 0) + 1);
+    }
+
+    const stageBreakdown = Array.from(stageMap.entries())
+      .map(([stage, count]) => ({
+        stage,
+        count,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    // =================================================
+    // MONTHLY TARGET
+    // =================================================
+
+    const target = await StaffTarget.findOne({
+      staffId,
+      targetMonth: selectedMonth,
+    }).lean();
+
+    const targetAmount = Number(target?.targetAmount || 0);
+
+    // =================================================
+    // STAFF COLLECTION FOR SELECTED MONTH
+    //
+    // IMPORTANT:
+    // Performance follows creditedStaff snapshot,
+    // not current client assignment.
+    // =================================================
+
+    const monthlyPerformanceResult = await Payment.aggregate([
+      {
+        $match: {
+          creditedStaff: staffId,
+
+          paymentStatus: "Completed",
+
+          paymentDate: {
+            $gte: start,
+            $lt: end,
+          },
+        },
+      },
+
+      {
+        $group: {
+          _id: null,
+
+          totalCollected: {
+            $sum: "$amountPaid",
+          },
+
+          paymentCount: {
+            $sum: 1,
+          },
+
+          clientIds: {
+            $addToSet: "$clientId",
+          },
+        },
+      },
+    ]);
+
+    const totalCollected = Number(
+      monthlyPerformanceResult[0]?.totalCollected || 0,
+    );
+
+    const paymentCount = Number(monthlyPerformanceResult[0]?.paymentCount || 0);
+
+    const payingClientCount =
+      monthlyPerformanceResult[0]?.clientIds?.length || 0;
+
+    const remainingAmount = Math.max(targetAmount - totalCollected, 0);
+
+    const achievementPercentage =
+      targetAmount > 0
+        ? Number(((totalCollected / targetAmount) * 100).toFixed(2))
+        : 0;
+
+    let performanceStatus = "No Target";
+
+    if (targetAmount > 0) {
+      if (totalCollected >= targetAmount) {
+        performanceStatus = "Achieved";
+      } else if (totalCollected > 0) {
+        performanceStatus = "In Progress";
+      } else {
+        performanceStatus = "Not Started";
+      }
+    }
+
+    // =================================================
+    // OUTSTANDING FEES FOR CURRENTLY ASSIGNED CLIENTS
+    //
+    // This is workload/outstanding follow-up,
+    // separate from staff target performance.
+    // =================================================
+
+    let totalExpected = 0;
+    let totalPaidAgainstFees = 0;
+    let totalOutstanding = 0;
+    let outstandingFeeCount = 0;
+
+    if (clientObjectIds.length > 0) {
+      const activeFees = await ClientFee.find({
+        clientRef: {
+          $in: clientObjectIds,
+        },
+
+        status: "Active",
+      })
+        .select("_id clientRef clientId feeName expectedAmount dueDate")
+        .lean();
+
+      const feeIds = activeFees.map((fee) => fee._id);
+
+      let paidByFee = [];
+
+      if (feeIds.length > 0) {
+        paidByFee = await Payment.aggregate([
+          {
+            $match: {
+              clientFeeRef: {
+                $in: feeIds,
+              },
+
+              paymentStatus: "Completed",
+            },
+          },
+
+          {
+            $group: {
+              _id: "$clientFeeRef",
+
+              totalPaid: {
+                $sum: "$amountPaid",
+              },
+            },
+          },
+        ]);
+      }
+
+      const paidMap = new Map(
+        paidByFee.map((item) => [
+          String(item._id),
+
+          Number(item.totalPaid || 0),
+        ]),
+      );
+
+      for (const fee of activeFees) {
+        const expected = Number(fee.expectedAmount || 0);
+
+        const paid = paidMap.get(String(fee._id)) || 0;
+
+        const outstanding = Math.max(expected - paid, 0);
+
+        totalExpected += expected;
+
+        totalPaidAgainstFees += paid;
+
+        totalOutstanding += outstanding;
+
+        if (outstanding > 0) {
+          outstandingFeeCount += 1;
+        }
+      }
+    }
+
+    // =================================================
+    // RECENT PAYMENTS CREDITED TO STAFF
+    // =================================================
+
+    const recentPayments = await Payment.find({
+      creditedStaff: staffId,
+
+      paymentStatus: "Completed",
+    })
+      .sort({
+        createdAt: -1,
+      })
+      .limit(8)
+      .select(
+        "clientId paymentName amountPaid paymentMethod paymentDate stageAtPayment createdAt",
+      )
+      .lean();
+
+    // =================================================
+    // RECENT ASSIGNED CLIENTS
+    // =================================================
+
+    const recentClients = assignedClients.slice(0, 8).map((client) => ({
+      clientId: client.clientId,
+
+      fullName: client.fullName,
+
+      phone: client.phone,
+
+      visaType: client.visaType,
+
+      currentStage: client.currentStage || "Registration Pending",
+
+      createdAt: client.createdAt,
+    }));
+
+    return res.status(200).json({
+      success: true,
+
+      selectedMonth,
+
+      staff: {
+        staffId: staff.staffId,
+
+        name: staff.name,
+
+        email: staff.email,
+
+        phone: staff.phone,
+
+        location: staff.location,
+
+        isActive: staff.isActive,
+      },
+
+      overview: {
+        totalAssignedClients,
+
+        targetAmount,
+
+        totalCollected,
+
+        remainingAmount,
+
+        achievementPercentage,
+
+        performanceStatus,
+
+        paymentCount,
+
+        payingClientCount,
+
+        totalExpected,
+
+        totalPaidAgainstFees,
+
+        totalOutstanding,
+
+        outstandingFeeCount,
+      },
+
+      stageBreakdown,
+
+      recentClients,
+
+      recentPayments,
+    });
+  } catch (error) {
+    console.error("STAFF DASHBOARD ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+
+      message: error.message || "Failed to load staff dashboard.",
+    });
+  }
+};

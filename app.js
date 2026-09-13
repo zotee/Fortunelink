@@ -18,7 +18,7 @@ const paymentRoutes = require("./routes/paymentRoutes");
 const clientFeeRoutes = require("./routes/clientFeeRoutes");
 const staffTargetRoutes = require("./routes/staffTargetRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
-
+const createAdmin = require("./scripts/createAdmin");
 const app = express();
 
 // =================================================
@@ -114,11 +114,15 @@ const startServer = async () => {
 
     console.log("Connected to MongoDB Atlas");
 
+    // Make sure Super Admin exists
+    await createAdmin();
+
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running successfully on port ${PORT}`);
     });
   } catch (error) {
-    console.error("MongoDB connection failed:");
+    console.error("Server startup failed:");
+
     console.error(error);
 
     process.exit(1);
