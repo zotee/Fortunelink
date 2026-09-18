@@ -26,11 +26,11 @@ const profileSchema = new mongoose.Schema(
       default: null,
     },
 
-    gender: {
-      type: String,
-      enum: ["Male", "Female", "Other"],
-      default: null,
-    },
+   gender: {
+  type: String,
+  enum: ["Male", "Female", "Other", "Prefer not to say"],
+  default: null,
+},
 
     email: {
       type: String,
@@ -62,23 +62,50 @@ const profileSchema = new mongoose.Schema(
       default: null,
     },
 
-    statusOfResidence: {
-      type: String,
-      trim: true,
-      default: "",
-    },
+   statusOfResidence: {
+  type: String,
+  enum: [
+    "Citizen",
+    "Permanent Resident",
+    "Temporary Resident",
+    "Student Visa",
+    "Work Visa",
+    "Dependent Visa",
+    "Refugee",
+    "Other",
+  ],
+  default: "",
+},
+lastQualification: {
+  type: String,
+  enum: [
+    "SLC / SEE",
+    "+2 / Intermediate",
+    "Bachelor's Degree",
+    "Master's Degree",
+    "PhD",
+    "Diploma",
+    "Certificate Course",
+    "Other",
+  ],
+  default: "",
+},
 
-    lastQualification: {
-      type: String,
-      trim: true,
-      default: "",
-    },
-
-    japaneseLanguageLevel: {
-      type: String,
-      trim: true,
-      default: "",
-    },
+   japaneseLanguageLevel: {
+  type: String,
+  enum: [
+    "None",
+    "N5",
+    "N4",
+    "N3",
+    "N2",
+    "N1",
+    "JLPT Not Taken",
+    "NAT-Test",
+    "J-Test",
+  ],
+  default: "",
+},
 
     schoolName: {
       type: String,
@@ -128,11 +155,23 @@ const profileSchema = new mongoose.Schema(
       default: "",
     },
 
-    sponsorRelationship: {
-      type: String,
-      trim: true,
-      default: "",
-    },
+   sponsorRelationship: {
+  type: String,
+  enum: [
+    "Father",
+    "Mother",
+    "Brother",
+    "Sister",
+    "Spouse",
+    "Uncle",
+    "Aunt",
+    "Grandparent",
+    "Self",
+    "Guardian",
+    "Other",
+  ],
+  default: "",
+},
 
     sponsorStatusOfResidence: {
       type: String,
