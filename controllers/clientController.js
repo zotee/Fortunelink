@@ -168,10 +168,40 @@ const attachStaffDetails = async (clients) => {
 };
 
 // =================================================
-// PAGINATION
+// ESCAPE REGEX
+//
+// Prevent special regex characters from affecting
+// search behaviour.
 // =================================================
 
-const parsePagination = (query) => {
+const escapeRegex = (value) => {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+};
+
+// =================================================
+// EXACT CASE-INSENSITIVE REGEX
+//
+// Useful for filters such as:
+// nationality=nepal
+//
+// Matches:
+// Nepal
+// NEPAL
+// nepal
+// =================================================
+
+const exactRegex = (value) => {
+  return {
+    $regex: `^${escapeRegex(value)}$`,
+    $options: "i",
+  };
+};
+
+// =================================================
+// PARSE CLIENT LIST QUERY
+// =================================================
+
+const parseClientListQuery = (query) => {
   const page = Math.max(Number.parseInt(query.page, 10) || 1, 1);
 
   const limit = Math.min(
@@ -181,13 +211,32 @@ const parsePagination = (query) => {
 
   const skip = (page - 1) * limit;
 
-  const search = String(query.search || "").trim();
+  const freeWord = String(query.free_word || "").trim();
+
+  // =================================================
+  // SORT FIELD
+  // =================================================
+
+  const sortFieldMap = {
+    createdAt: "createdAt",
+    updatedAt: "updatedAt",
+    name: "fullName",
+    fullName: "fullName",
+    clientId: "clientId",
+  };
+
+  const sortBy = sortFieldMap[query.sortBy] || "createdAt";
+
+  const sortOrder =
+    String(query.sortOrder || "desc").toLowerCase() === "asc" ? 1 : -1;
 
   return {
     page,
     limit,
     skip,
-    search,
+    freeWord,
+    sortBy,
+    sortOrder,
   };
 };
 
@@ -407,99 +456,374 @@ exports.createClient = async (req, res) => {
 //
 // GET /api/clients
 // =================================================
+// =================================================
+// GET CLIENT LIST
+//
+// SERVER-SIDE:
+// - Free word search
+// - Filters
+// - Pagination
+// - Sorting
+//
+// SUPERADMIN:
+// sees all clients
+// may filter by staffId
+//
+// STAFF:
+// only sees own assigned clients
+// staffId query is ignored
+//
+// GET /api/clients
+//
+// EXAMPLE:
+//
+// /api/clients
+// ?free_word=ram
+// &staffId=W-122290
+// &visaType=Student
+// &currentStage=Visa Applied / Result Waiting
+// &coeStatus=Processing
+// &japaneseLevel=N3
+// &nationality=Nepal
+// &page=1
+// &limit=10
+// &sortBy=createdAt
+// &sortOrder=desc
+// =================================================
 
 exports.getAllClients = async (req, res) => {
   try {
-    const { page, limit, skip, search } = parsePagination(req.query);
-
-    const baseFilter = {};
+    const { page, limit, skip, freeWord, sortBy, sortOrder } =
+      parseClientListQuery(req.query);
 
     // =================================================
-    // STAFF FILTER
+    // CLIENT COLLECTION FILTERS
+    //
+    // These fields exist directly in Client.
+    // =================================================
+    const clientFilter = {};
+    // =================================================
+    // ROLE / STAFF FILTER
     // =================================================
 
     if (req.user.role === "staff") {
-      baseFilter.assignedStaff = req.user.staffId;
+      // Staff can ONLY see their own clients.
+      clientFilter.assignedStaff = req.user.staffId;
     }
-
-    // =================================================
-    // ADMIN OPTIONAL STAFF FILTER
-    //
-    // /clients?staffId=W-122290
-    // =================================================
 
     if (req.user.role === "superadmin" && req.query.staffId) {
-      baseFilter.assignedStaff = normalizeStaffId(req.query.staffId);
+      const staffId = normalizeStaffId(req.query.staffId);
+      if (staffId) {
+        clientFilter.assignedStaff = staffId;
+      }
     }
 
-    const filter = {
-      ...baseFilter,
-    };
-
     // =================================================
-    // SEARCH
+    // VISA TYPE
     // =================================================
 
-    if (search) {
-      filter.$or = [
-        {
-          clientId: {
-            $regex: search,
-            $options: "i",
-          },
-        },
-
-        {
-          fullName: {
-            $regex: search,
-            $options: "i",
-          },
-        },
-
-        {
-          phone: {
-            $regex: search,
-            $options: "i",
-          },
-        },
-      ];
+    if (req.query.visaType) {
+      clientFilter.visaType = String(req.query.visaType).trim();
     }
 
-    const [clients, total] = await Promise.all([
-      Client.find(filter)
-        .sort({
-          createdAt: -1,
-        })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+    // =================================================
+    // CURRENT STAGE
+    // =================================================
 
-      Client.countDocuments(filter),
-    ]);
+    if (req.query.currentStage) {
+      clientFilter.currentStage = String(req.query.currentStage).trim();
+    }
 
-    const data = await attachStaffDetails(clients);
+    // =================================================
+    // COE STATUS
+    // =================================================
+
+    if (req.query.coeStatus) {
+      clientFilter.coeStatus = String(req.query.coeStatus).trim();
+    }
+
+    // =================================================
+    // CLIENT STATUS
+    // =================================================
+
+    if (req.query.clientStatus) {
+      clientFilter.clientStatus = String(req.query.clientStatus).trim();
+    }
+
+    // =================================================
+    // PROFILE FILTERS
+    //
+    // These fields exist in Profile.
+    // We apply them after $lookup.
+    // =================================================
+
+    const profileFilter = {};
+
+    // =================================================
+    // JAPANESE LANGUAGE LEVEL
+    // =================================================
+
+    if (req.query.japaneseLevel) {
+      profileFilter["profile.japaneseLanguageLevel"] = exactRegex(
+        req.query.japaneseLevel,
+      );
+    }
+
+    // =================================================
+    // NATIONALITY
+    // =================================================
+
+    if (req.query.nationality) {
+      profileFilter["profile.nationality"] = exactRegex(req.query.nationality);
+    }
+
+    // =================================================
+    // AGGREGATION PIPELINE
+    // =================================================
+
+    const pipeline = [];
+
+    // =================================================
+    // 1. FILTER CLIENT FIRST
+    //
+    // Do this before lookup for better performance.
+    // =================================================
+
+    pipeline.push({
+      $match: clientFilter,
+    });
+
+    // =================================================
+    // 2. JOIN PROFILE
+    // =================================================
+
+    pipeline.push({
+      $lookup: {
+        from: Profile.collection.name,
+        localField: "clientId",
+        foreignField: "clientId",
+        as: "profile",
+      },
+    });
+
+    // =================================================
+    // 3. PROFILE ARRAY -> OBJECT
+    // =================================================
+
+    pipeline.push({
+      $unwind: {
+        path: "$profile",
+        preserveNullAndEmptyArrays: true,
+      },
+    });
+
+    // =================================================
+    // 4. JOIN ASSIGNED STAFF
+    // =================================================
+
+    pipeline.push({
+      $lookup: {
+        from: Staff.collection.name,
+        localField: "assignedStaff",
+        foreignField: "staffId",
+        as: "assignedStaffDetails",
+      },
+    });
+
+    // =================================================
+    // 5. STAFF ARRAY -> OBJECT
+    // =================================================
+
+    pipeline.push({
+      $unwind: {
+        path: "$assignedStaffDetails",
+        preserveNullAndEmptyArrays: true,
+      },
+    });
+
+    // =================================================
+    // 6. PROFILE FILTERS
+    // =================================================
+
+    if (Object.keys(profileFilter).length > 0) {
+      pipeline.push({
+        $match: profileFilter,
+      });
+    }
+
+    // =================================================
+    // 7. FREE WORD SEARCH
+    //
+    // One search field searches multiple Client
+    // and Profile fields.
+    // =================================================
+
+    if (freeWord) {
+      const searchRegex = {
+        $regex: escapeRegex(freeWord),
+        $options: "i",
+      };
+      pipeline.push({
+        $match: {
+          $or: [
+            // -----------------------------------------
+            // CLIENT
+            // -----------------------------------------
+            {
+              clientId: searchRegex,
+            },
+            {
+              fullName: searchRegex,
+            },
+            {
+              phone: searchRegex,
+            },
+            {
+              assignedStaff: searchRegex,
+            },
+            // -----------------------------------------
+            // PROFILE
+            // -----------------------------------------
+            {
+              "profile.email": searchRegex,
+            },
+            {
+              "profile.nationality": searchRegex,
+            },
+            {
+              "profile.passportNumber": searchRegex,
+            },
+            {
+              "profile.address": searchRegex,
+            },
+            {
+              "profile.schoolName": searchRegex,
+            },
+            {
+              "profile.companyName": searchRegex,
+            },
+            {
+              "profile.jobTitle": searchRegex,
+            },
+            {
+              "profile.jobCategory": searchRegex,
+            },
+
+            {
+              "profile.workLocation": searchRegex,
+            },
+            {
+              "profile.japaneseLanguageLevel": searchRegex,
+            },
+
+            // -----------------------------------------
+            // STAFF
+            // -----------------------------------------
+            {
+              "assignedStaffDetails.name": searchRegex,
+            },
+            {
+              "assignedStaffDetails.email": searchRegex,
+            },
+          ],
+        },
+      });
+    }
+
+    // =================================================
+    // 8. REMOVE STAFF PASSWORD
+    // =================================================
+
+    pipeline.push({
+      $unset: "assignedStaffDetails.password",
+    });
+
+    // =================================================
+    // 9. PAGINATION
+    //
+    // $facet gives us both:
+    //
+    // data
+    // total count
+    //
+    // from one query.
+    // =================================================
+
+    pipeline.push({
+      $facet: {
+        data: [
+          {
+            $sort: {
+              [sortBy]: sortOrder,
+            },
+          },
+          {
+            $skip: skip,
+          },
+          {
+            $limit: limit,
+          },
+        ],
+        pagination: [
+          {
+            $count: "total",
+          },
+        ],
+      },
+    });
+
+    // =================================================
+    // RUN QUERY
+    // =================================================
+    const result = await Client.aggregate(pipeline);
+
+    // =================================================
+    // RESULT
+    // =================================================
+
+    const data = result?.[0]?.data || [];
+    const total = result?.[0]?.pagination?.[0]?.total || 0;
+    const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
+
+    // =================================================
+    // RESPONSE
+    // =================================================
 
     return res.status(200).json({
       success: true,
-
       count: data.length,
-
       data,
-
       pagination: {
-        page,
-        limit,
+        current_page: page,
+        last_page: totalPages,
+        per_page: limit,
         total,
+        from: total === 0 ? null : skip + 1,
+        to: total === 0 ? null : Math.min(skip + data.length, total),
+        has_next_page: page < totalPages,
+        has_previous_page: page > 1,
+      },
 
-        totalPages: Math.ceil(total / limit),
+      filters: {
+        free_word: freeWord || null,
+        staffId:
+          req.user.role === "staff"
+            ? req.user.staffId
+            : req.query.staffId || null,
+        visaType: req.query.visaType || null,
+        currentStage: req.query.currentStage || null,
+        coeStatus: req.query.coeStatus || null,
+        clientStatus: req.query.clientStatus || null,
+        japaneseLevel: req.query.japaneseLevel || null,
+        nationality: req.query.nationality || null,
+        sortBy,
+        sortOrder: sortOrder === 1 ? "asc" : "desc",
       },
     });
   } catch (error) {
     console.error("GET CLIENTS ERROR:", error);
-
     return res.status(500).json({
       success: false,
-
       message: error.message || "Failed to get clients.",
     });
   }
