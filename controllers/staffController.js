@@ -4,6 +4,27 @@ const Staff = require("../model/staffSchema");
 const Admin = require("../model/adminModel");
 const Client = require("../model/clientSchema");
 
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const parseStaffListQuery = (query) => {
+  const page = Math.max(Number.parseInt(query.page, 10) || 1, 1);
+  const limit = Math.min(
+    Math.max(Number.parseInt(query.limit, 10) || 10, 1),
+    100,
+  );
+
+  return {
+    page,
+    limit,
+    skip: (page - 1) * limit,
+    keyword: String(query.keyword || query.free_word || "").trim(),
+    staffId: String(query.staffId || "").trim().toUpperCase(),
+    location: String(query.location || "").trim(),
+    isActive:
+      query.isActive === "true" ? true : query.isActive === "false" ? false : null,
+  };
+};
+
 // =================================================
 // FIND STAFF
 // Supports MongoDB _id or generated staffId
@@ -175,12 +196,43 @@ const createStaff = async (req, res) => {
 
 const getAllStaff = async (req, res) => {
   try {
-    const staffList = await Staff.find()
-      .select("-password")
-      .sort({
-        createdAt: -1,
-      })
-      .lean();
+    const { page, limit, skip, keyword, staffId, location, isActive } =
+      parseStaffListQuery(req.query);
+
+    const filter = {};
+
+    if (staffId) {
+      filter.staffId = staffId;
+    }
+
+    if (location) {
+      filter.location = location;
+    }
+
+    if (isActive !== null) {
+      filter.isActive = isActive;
+    }
+
+    if (keyword) {
+      const searchRegex = { $regex: escapeRegex(keyword), $options: "i" };
+      filter.$or = [
+        { staffId: searchRegex },
+        { name: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+        { location: searchRegex },
+      ];
+    }
+
+    const [staffList, total] = await Promise.all([
+      Staff.find(filter)
+        .select("-password")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Staff.countDocuments(filter),
+    ]);
 
     const staffIds = staffList.map((staff) => staff.staffId).filter(Boolean);
 
@@ -216,6 +268,22 @@ const getAllStaff = async (req, res) => {
       success: true,
       count: result.length,
       data: result,
+      pagination: {
+        current_page: page,
+        last_page: total > 0 ? Math.ceil(total / limit) : 0,
+        per_page: limit,
+        total,
+        from: total === 0 ? null : skip + 1,
+        to: total === 0 ? null : Math.min(skip + result.length, total),
+        has_next_page: page < Math.ceil(total / limit),
+        has_previous_page: page > 1,
+      },
+      filters: {
+        keyword: keyword || null,
+        staffId: staffId || null,
+        location: location || null,
+        isActive,
+      },
     });
   } catch (error) {
     console.error("GET ALL STAFF ERROR:", error);
