@@ -20,7 +20,7 @@ router.get("/", authorize("superadmin", "staff"), getStages);
 // CREATE STAGE
 // SUPERADMIN
 // =================================================
-router.post("/", authorize("superadmin"), createStage);
+router.post("/", authorize("superadmin", "staff"), createStage);
 // =================================================
 // UPDATE STAGE
 // SUPERADMIN
