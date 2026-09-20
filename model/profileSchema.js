@@ -247,16 +247,16 @@ const profileSchema = new mongoose.Schema(
 // =================================================
 // VALIDATION: ensure client exists
 // =================================================
-profileSchema.pre("save", async function (next) {
+profileSchema.pre("save", async function () {
   const Client = mongoose.model("Client");
 
-  const client = await Client.findById(this.clientRef);
+  const client = await Client.findById(this.clientRef)
+    .select("clientId")
+    .lean();
 
   if (!client || client.clientId !== this.clientId) {
-    return next(new Error("clientId and clientRef mismatch"));
+    throw new Error("clientId and clientRef mismatch");
   }
-
-  next();
 });
 
 // =================================================

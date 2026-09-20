@@ -185,24 +185,30 @@ clientSchema.pre("save", async function () {
 // =================================================
 // SYNC: SAVE HOOK
 // =================================================
-clientSchema.pre("save", function (next) {
+clientSchema.pre("save", function () {
   if (this.isModified("currentStage")) {
     this.clientStatus = mapStageToStatus(this.currentStage);
   }
-  next();
 });
 
 // =================================================
 // SYNC: UPDATE HOOK
 // =================================================
-clientSchema.pre("findOneAndUpdate", function (next) {
-  const update = this.getUpdate();
+clientSchema.pre("findOneAndUpdate", function () {
+  const update = this.getUpdate() || {};
 
-  if (update.currentStage) {
-    update.clientStatus = mapStageToStatus(update.currentStage);
+  const currentStage =
+    update.currentStage || update.$set?.currentStage;
+
+  if (!currentStage) return;
+
+  if (update.$set) {
+    update.$set.clientStatus = mapStageToStatus(currentStage);
+  } else {
+    update.clientStatus = mapStageToStatus(currentStage);
   }
 
-  next();
+  this.setUpdate(update);
 });
 
 // =================================================

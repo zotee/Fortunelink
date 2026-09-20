@@ -9,6 +9,7 @@ const {
   updateClient,
   deleteClient,
   assignClient,
+  exportClients,
 } = require("../controllers/clientController");
 
 const upload = require("../middleware/upload");
@@ -50,6 +51,16 @@ router.use(verifyToken);
 // =================================================
 
 router.post("/", authorize("superadmin", "staff"), clientUploads, createClient);
+
+// =================================================
+// EXPORT FILTERED CLIENTS
+//
+// GET /api/clients/export/csv
+// GET /api/clients/export/pdf
+// GET /api/clients/export/xlsx
+// =================================================
+
+router.get("/export/:format", authorize("superadmin", "staff"), exportClients);
 
 // =================================================
 // GET CLIENT LIST
