@@ -5,7 +5,6 @@ const paymentSchema = new mongoose.Schema(
     // =================================================
     // CLIENT
     // =================================================
-
     clientRef: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Client",
@@ -21,34 +20,37 @@ const paymentSchema = new mongoose.Schema(
     },
 
     // =================================================
-    // FEE REQUIREMENT
+    // STAGE PAYMENT
     // =================================================
-
-    // null is allowed only so existing old payments
-    // do not break after adding this field.
-    clientFeeRef: {
+    stageHistoryRef: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "ClientFee",
+      ref: "ClientStageHistory",
       default: null,
+    },
+
+    stageKey: {
+      type: String,
+      trim: true,
+      default: "",
       index: true,
     },
 
-    // Snapshots.
-    // Even if the fee is renamed later,
-    // old payment history stays unchanged.
-    paymentName: {
+    stageName: {
       type: String,
-      required: true,
       trim: true,
+      default: "",
       maxlength: 150,
     },
 
-    expectedAmount: {
+    // Snapshot of the Stage Master amount when payment happened.
+    stageAmount: {
       type: Number,
-      required: true,
       min: 0,
+      default: 0,
     },
 
+    // For all NEW stage payments:
+    // amountPaid === stageAmount
     amountPaid: {
       type: Number,
       required: true,
@@ -64,6 +66,7 @@ const paymentSchema = new mongoose.Schema(
     paymentDate: {
       type: Date,
       required: true,
+      index: true,
     },
 
     paymentStatus: {
@@ -74,19 +77,8 @@ const paymentSchema = new mongoose.Schema(
     },
 
     // =================================================
-    // STAGE SNAPSHOT
-    // =================================================
-
-    stageAtPayment: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    // =================================================
     // RECORDED BY
     // =================================================
-
     collectedBy: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
@@ -107,7 +99,6 @@ const paymentSchema = new mongoose.Schema(
     // =================================================
     // STAFF CREDIT
     // =================================================
-
     creditedStaffRef: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Staff",
@@ -128,31 +119,64 @@ const paymentSchema = new mongoose.Schema(
     },
 
     // =================================================
-    // OPTIONAL DETAILS
+    // OPTIONAL PAYMENT DETAILS
     // =================================================
-
     referenceNumber: {
       type: String,
       trim: true,
       default: "",
+      maxlength: 200,
     },
 
     receiptNumber: {
       type: String,
       trim: true,
       default: "",
+      maxlength: 200,
     },
 
     bankName: {
       type: String,
       trim: true,
       default: "",
+      maxlength: 200,
     },
 
     note: {
       type: String,
       trim: true,
       maxlength: 3000,
+      default: "",
+    },
+
+    // =================================================
+    // LEGACY FIELDS
+    //
+    // Keep temporarily so old payment records remain
+    // readable while we migrate away from ClientFee.
+    // NEW PAYMENTS DO NOT USE THESE.
+    // =================================================
+    clientFeeRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ClientFee",
+      default: null,
+    },
+
+    paymentName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    expectedAmount: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+
+    stageAtPayment: {
+      type: String,
+      trim: true,
       default: "",
     },
   },
@@ -168,13 +192,22 @@ paymentSchema.index({
 });
 
 paymentSchema.index({
-  clientFeeRef: 1,
-  paymentStatus: 1,
-});
-
-paymentSchema.index({
   creditedStaff: 1,
   paymentDate: -1,
 });
+
+paymentSchema.index(
+  {
+    stageHistoryRef: 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: {
+      stageHistoryRef: {
+        $type: "objectId",
+      },
+    },
+  },
+);
 
 module.exports = mongoose.model("Payment", paymentSchema);

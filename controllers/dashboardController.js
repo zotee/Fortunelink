@@ -1,8 +1,8 @@
 const Client = require("../model/clientSchema");
 const Staff = require("../model/staffSchema");
-const ClientFee = require("../model/clientFeeSchema");
 const Payment = require("../model/paymentSchema");
 const StaffTarget = require("../model/staffTargetSchema");
+const ClientStage = require("../model/clientStageSchema");
 
 // =================================================
 // HELPERS
@@ -26,7 +26,6 @@ const getCurrentJapanMonth = () => {
   }).formatToParts(new Date());
 
   const year = parts.find((part) => part.type === "year")?.value;
-
   const month = parts.find((part) => part.type === "month")?.value;
 
   return `${year}-${month}`;
@@ -39,15 +38,37 @@ const getJapanMonthRange = (targetMonth) => {
   const month = Number(monthString);
 
   const nextYear = month === 12 ? year + 1 : year;
-
   const nextMonth = month === 12 ? 1 : month + 1;
-
   const paddedNextMonth = String(nextMonth).padStart(2, "0");
 
   return {
     start: new Date(`${targetMonth}-01T00:00:00+09:00`),
-
     end: new Date(`${nextYear}-${paddedNextMonth}-01T00:00:00+09:00`),
+  };
+};
+
+const getStageNameMap = async () => {
+  const stages = await ClientStage.find({}).select("key name").lean();
+
+  return new Map(stages.map((stage) => [stage.key, stage.name]));
+};
+
+const normalizeRecentPayment = (payment) => {
+  return {
+    ...payment,
+
+    stageKey: payment.stageKey || "",
+
+    stageName:
+      payment.stageName ||
+      payment.paymentName ||
+      payment.stageAtPayment ||
+      "Legacy Payment",
+
+    stageAmount:
+      Number(payment.stageAmount) > 0
+        ? Number(payment.stageAmount)
+        : Number(payment.expectedAmount ?? payment.amountPaid ?? 0),
   };
 };
 
@@ -76,15 +97,18 @@ exports.getAdminDashboard = async (req, res) => {
     // BASIC COUNTS
     // =================================================
 
-    const [totalClients, totalStaff, activeStaff] = await Promise.all([
-      Client.countDocuments(),
+    const [totalClients, totalStaff, activeStaff, stageNameMap] =
+      await Promise.all([
+        Client.countDocuments(),
 
-      Staff.countDocuments(),
+        Staff.countDocuments(),
 
-      Staff.countDocuments({
-        isActive: true,
-      }),
-    ]);
+        Staff.countDocuments({
+          isActive: true,
+        }),
+
+        getStageNameMap(),
+      ]);
 
     // =================================================
     // CLIENT STAGE BREAKDOWN
@@ -94,7 +118,13 @@ exports.getAdminDashboard = async (req, res) => {
       {
         $group: {
           _id: {
-            $ifNull: ["$currentStage", "Registration Pending"],
+            stage: {
+              $ifNull: ["$currentStage", ""],
+            },
+
+            clientStatus: {
+              $ifNull: ["$clientStatus", "Registration Pending"],
+            },
           },
 
           count: {
@@ -110,78 +140,63 @@ exports.getAdminDashboard = async (req, res) => {
       },
     ]);
 
-    const stageBreakdown = stageBreakdownRaw.map((item) => ({
-      stage: item._id,
-      count: item.count,
-    }));
+    const stageBreakdown = stageBreakdownRaw.map((item) => {
+      const stageKey = item._id?.stage || "";
+
+      const fallbackName =
+        item._id?.clientStatus || stageKey || "Registration Pending";
+
+      return {
+        stage: stageKey,
+        stageName: stageNameMap.get(stageKey) || fallbackName,
+        count: item.count,
+      };
+    });
 
     // =================================================
-    // ACTIVE FEES
+    // ALL-TIME COMPLETED PAYMENTS
+    //
+    // No ClientFee / outstanding calculation.
     // =================================================
 
-    const activeFees = await ClientFee.find({
-      status: "Active",
-    })
-      .select("_id expectedAmount")
-      .lean();
+    const allTimePaymentResult = await Payment.aggregate([
+      {
+        $match: {
+          paymentStatus: "Completed",
+        },
+      },
 
-    const activeFeeIds = activeFees.map((fee) => fee._id);
+      {
+        $group: {
+          _id: null,
 
-    const totalExpected = activeFees.reduce(
-      (total, fee) => total + Number(fee.expectedAmount || 0),
-      0,
-    );
+          totalCollected: {
+            $sum: "$amountPaid",
+          },
 
-    // =================================================
-    // PAID BY ACTIVE FEE
-    // =================================================
+          paymentCount: {
+            $sum: 1,
+          },
 
-    let paidByFee = [];
-
-    if (activeFeeIds.length > 0) {
-      paidByFee = await Payment.aggregate([
-        {
-          $match: {
-            clientFeeRef: {
-              $in: activeFeeIds,
-            },
-
-            paymentStatus: "Completed",
+          clientIds: {
+            $addToSet: "$clientId",
           },
         },
+      },
+    ]);
 
-        {
-          $group: {
-            _id: "$clientFeeRef",
-
-            totalPaid: {
-              $sum: "$amountPaid",
-            },
-          },
-        },
-      ]);
-    }
-
-    const paidMap = new Map(
-      paidByFee.map((item) => [String(item._id), Number(item.totalPaid || 0)]),
+    const totalCollectedAllTime = Number(
+      allTimePaymentResult[0]?.totalCollected || 0,
     );
 
-    let totalPaidAgainstFees = 0;
-    let totalOutstanding = 0;
+    const totalCompletedPayments = Number(
+      allTimePaymentResult[0]?.paymentCount || 0,
+    );
 
-    for (const fee of activeFees) {
-      const paidAmount = paidMap.get(String(fee._id)) || 0;
-
-      totalPaidAgainstFees += paidAmount;
-
-      totalOutstanding += Math.max(
-        Number(fee.expectedAmount || 0) - paidAmount,
-        0,
-      );
-    }
+    const totalPayingClients = allTimePaymentResult[0]?.clientIds?.length || 0;
 
     // =================================================
-    // CURRENT MONTH PAYMENTS
+    // SELECTED MONTH PAYMENTS
     // =================================================
 
     const monthlyPaymentResult = await Payment.aggregate([
@@ -285,7 +300,6 @@ exports.getAdminDashboard = async (req, res) => {
     const targetMap = new Map(
       monthlyTargets.map((target) => [
         target.staffId,
-
         Number(target.targetAmount || 0),
       ]),
     );
@@ -305,7 +319,7 @@ exports.getAdminDashboard = async (req, res) => {
     );
 
     // =================================================
-    // ACTIVE STAFF FOR RANKING
+    // ACTIVE STAFF RANKING
     // =================================================
 
     const staffList = await Staff.find({
@@ -323,6 +337,8 @@ exports.getAdminDashboard = async (req, res) => {
 
       const targetAmount = targetMap.get(staff.staffId) || 0;
 
+      // This is TARGET remaining,
+      // not client outstanding.
       const remainingAmount = Math.max(
         targetAmount - paymentData.totalCollected,
         0,
@@ -370,7 +386,6 @@ exports.getAdminDashboard = async (req, res) => {
       };
     });
 
-    // Rank primarily by collected amount.
     rankings.sort(
       (a, b) =>
         b.totalCollected - a.totalCollected ||
@@ -383,10 +398,10 @@ exports.getAdminDashboard = async (req, res) => {
     }));
 
     // =================================================
-    // RECENT PAYMENTS
+    // RECENT COMPLETED PAYMENTS
     // =================================================
 
-    const recentPayments = await Payment.find({
+    const recentPaymentDocuments = await Payment.find({
       paymentStatus: "Completed",
     })
       .sort({
@@ -394,9 +409,32 @@ exports.getAdminDashboard = async (req, res) => {
       })
       .limit(8)
       .select(
-        "clientId paymentName amountPaid paymentMethod paymentDate creditedStaff creditedStaffName collectedByName stageAtPayment createdAt",
+        [
+          "clientId",
+          "stageKey",
+          "stageName",
+          "stageAmount",
+          "amountPaid",
+          "paymentMethod",
+          "paymentDate",
+          "paymentStatus",
+          "creditedStaff",
+          "creditedStaffName",
+          "collectedByName",
+          "referenceNumber",
+          "receiptNumber",
+          "bankName",
+          "createdAt",
+
+          // Legacy fallbacks.
+          "paymentName",
+          "expectedAmount",
+          "stageAtPayment",
+        ].join(" "),
       )
       .lean();
+
+    const recentPayments = recentPaymentDocuments.map(normalizeRecentPayment);
 
     return res.status(200).json({
       success: true,
@@ -408,20 +446,15 @@ exports.getAdminDashboard = async (req, res) => {
         totalStaff,
         activeStaff,
 
-        totalExpected: totalExpected,
-
-        totalPaid: totalPaidAgainstFees,
-
-        totalOutstanding,
+        totalCollectedAllTime,
+        totalCompletedPayments,
+        totalPayingClients,
 
         monthlyCollected,
-
         monthlyPaymentCount,
-
         monthlyClientCount,
 
         totalTarget,
-
         targetAchievement,
       },
 
@@ -441,12 +474,11 @@ exports.getAdminDashboard = async (req, res) => {
     });
   }
 };
+
 // =================================================
 // STAFF DASHBOARD
 //
 // GET /api/dashboard/staff?month=2026-09
-//
-// STAFF ONLY
 // =================================================
 
 exports.getStaffDashboard = async (req, res) => {
@@ -497,7 +529,18 @@ exports.getStaffDashboard = async (req, res) => {
     const assignedClients = await Client.find({
       assignedStaff: staffId,
     })
-      .select("_id clientId fullName phone visaType currentStage createdAt")
+      .select(
+        [
+          "_id",
+          "clientId",
+          "fullName",
+          "phone",
+          "currentVisaStatus",
+          "currentStage",
+          "clientStatus",
+          "createdAt",
+        ].join(" "),
+      )
       .sort({
         createdAt: -1,
       })
@@ -505,7 +548,11 @@ exports.getStaffDashboard = async (req, res) => {
 
     const totalAssignedClients = assignedClients.length;
 
-    const clientObjectIds = assignedClients.map((client) => client._id);
+    // =================================================
+    // STAGE NAMES
+    // =================================================
+
+    const stageNameMap = await getStageNameMap();
 
     // =================================================
     // STAGE BREAKDOWN
@@ -514,17 +561,30 @@ exports.getStaffDashboard = async (req, res) => {
     const stageMap = new Map();
 
     for (const client of assignedClients) {
-      const stage = client.currentStage || "Registration Pending";
+      const stageKey = client.currentStage || "";
 
-      stageMap.set(stage, (stageMap.get(stage) || 0) + 1);
+      const stageName =
+        stageNameMap.get(stageKey) ||
+        client.clientStatus ||
+        stageKey ||
+        "Registration Pending";
+
+      const existing = stageMap.get(stageKey);
+
+      if (existing) {
+        existing.count += 1;
+      } else {
+        stageMap.set(stageKey, {
+          stage: stageKey,
+          stageName,
+          count: 1,
+        });
+      }
     }
 
-    const stageBreakdown = Array.from(stageMap.entries())
-      .map(([stage, count]) => ({
-        stage,
-        count,
-      }))
-      .sort((a, b) => b.count - a.count);
+    const stageBreakdown = Array.from(stageMap.values()).sort(
+      (a, b) => b.count - a.count,
+    );
 
     // =================================================
     // MONTHLY TARGET
@@ -538,11 +598,9 @@ exports.getStaffDashboard = async (req, res) => {
     const targetAmount = Number(target?.targetAmount || 0);
 
     // =================================================
-    // STAFF COLLECTION FOR SELECTED MONTH
+    // MONTHLY COMPLETED PAYMENTS
     //
-    // IMPORTANT:
-    // Performance follows creditedStaff snapshot,
-    // not current client assignment.
+    // Performance follows creditedStaff snapshot.
     // =================================================
 
     const monthlyPerformanceResult = await Payment.aggregate([
@@ -587,6 +645,8 @@ exports.getStaffDashboard = async (req, res) => {
     const payingClientCount =
       monthlyPerformanceResult[0]?.clientIds?.length || 0;
 
+    // Staff target remaining.
+    // This is NOT client outstanding.
     const remainingAmount = Math.max(targetAmount - totalCollected, 0);
 
     const achievementPercentage =
@@ -607,88 +667,51 @@ exports.getStaffDashboard = async (req, res) => {
     }
 
     // =================================================
-    // OUTSTANDING FEES FOR CURRENTLY ASSIGNED CLIENTS
-    //
-    // This is workload/outstanding follow-up,
-    // separate from staff target performance.
+    // ALL-TIME STAFF COMPLETED COLLECTIONS
     // =================================================
 
-    let totalExpected = 0;
-    let totalPaidAgainstFees = 0;
-    let totalOutstanding = 0;
-    let outstandingFeeCount = 0;
+    const allTimeStaffResult = await Payment.aggregate([
+      {
+        $match: {
+          creditedStaff: staffId,
 
-    if (clientObjectIds.length > 0) {
-      const activeFees = await ClientFee.find({
-        clientRef: {
-          $in: clientObjectIds,
+          paymentStatus: "Completed",
         },
+      },
 
-        status: "Active",
-      })
-        .select("_id clientRef clientId feeName expectedAmount dueDate")
-        .lean();
+      {
+        $group: {
+          _id: null,
 
-      const feeIds = activeFees.map((fee) => fee._id);
-
-      let paidByFee = [];
-
-      if (feeIds.length > 0) {
-        paidByFee = await Payment.aggregate([
-          {
-            $match: {
-              clientFeeRef: {
-                $in: feeIds,
-              },
-
-              paymentStatus: "Completed",
-            },
+          totalCollected: {
+            $sum: "$amountPaid",
           },
 
-          {
-            $group: {
-              _id: "$clientFeeRef",
-
-              totalPaid: {
-                $sum: "$amountPaid",
-              },
-            },
+          paymentCount: {
+            $sum: 1,
           },
-        ]);
-      }
 
-      const paidMap = new Map(
-        paidByFee.map((item) => [
-          String(item._id),
+          clientIds: {
+            $addToSet: "$clientId",
+          },
+        },
+      },
+    ]);
 
-          Number(item.totalPaid || 0),
-        ]),
-      );
+    const allTimeCollected = Number(allTimeStaffResult[0]?.totalCollected || 0);
 
-      for (const fee of activeFees) {
-        const expected = Number(fee.expectedAmount || 0);
+    const allTimePaymentCount = Number(
+      allTimeStaffResult[0]?.paymentCount || 0,
+    );
 
-        const paid = paidMap.get(String(fee._id)) || 0;
-
-        const outstanding = Math.max(expected - paid, 0);
-
-        totalExpected += expected;
-
-        totalPaidAgainstFees += paid;
-
-        totalOutstanding += outstanding;
-
-        if (outstanding > 0) {
-          outstandingFeeCount += 1;
-        }
-      }
-    }
+    const allTimePayingClientCount =
+      allTimeStaffResult[0]?.clientIds?.length || 0;
 
     // =================================================
-    // RECENT PAYMENTS CREDITED TO STAFF
+    // RECENT COMPLETED PAYMENTS
     // =================================================
 
-    const recentPayments = await Payment.find({
+    const recentPaymentDocuments = await Payment.find({
       creditedStaff: staffId,
 
       paymentStatus: "Completed",
@@ -698,27 +721,57 @@ exports.getStaffDashboard = async (req, res) => {
       })
       .limit(8)
       .select(
-        "clientId paymentName amountPaid paymentMethod paymentDate stageAtPayment createdAt",
+        [
+          "clientId",
+          "stageKey",
+          "stageName",
+          "stageAmount",
+          "amountPaid",
+          "paymentMethod",
+          "paymentDate",
+          "paymentStatus",
+          "referenceNumber",
+          "receiptNumber",
+          "bankName",
+          "createdAt",
+
+          // Legacy fallbacks.
+          "paymentName",
+          "expectedAmount",
+          "stageAtPayment",
+        ].join(" "),
       )
       .lean();
+
+    const recentPayments = recentPaymentDocuments.map(normalizeRecentPayment);
 
     // =================================================
     // RECENT ASSIGNED CLIENTS
     // =================================================
 
-    const recentClients = assignedClients.slice(0, 8).map((client) => ({
-      clientId: client.clientId,
+    const recentClients = assignedClients.slice(0, 8).map((client) => {
+      const stageKey = client.currentStage || "";
 
-      fullName: client.fullName,
+      return {
+        clientId: client.clientId,
 
-      phone: client.phone,
+        fullName: client.fullName,
 
-      visaType: client.visaType,
+        phone: client.phone,
 
-      currentStage: client.currentStage || "Registration Pending",
+        currentVisaStatus: client.currentVisaStatus,
 
-      createdAt: client.createdAt,
-    }));
+        currentStage: stageKey,
+
+        currentStageName:
+          stageNameMap.get(stageKey) ||
+          client.clientStatus ||
+          stageKey ||
+          "Registration Pending",
+
+        createdAt: client.createdAt,
+      };
+    });
 
     return res.status(200).json({
       success: true,
@@ -756,13 +809,11 @@ exports.getStaffDashboard = async (req, res) => {
 
         payingClientCount,
 
-        totalExpected,
+        allTimeCollected,
 
-        totalPaidAgainstFees,
+        allTimePaymentCount,
 
-        totalOutstanding,
-
-        outstandingFeeCount,
+        allTimePayingClientCount,
       },
 
       stageBreakdown,
