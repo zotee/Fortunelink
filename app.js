@@ -21,6 +21,8 @@ const clientFeeRoutes = require("./routes/clientFeeRoutes");
 const staffTargetRoutes = require("./routes/staffTargetRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const createAdmin = require("./scripts/createAdmin");
+const stageRoutes = require("./routes/stageRoutes");
+const { seedDefaultClientStages } = require("./services/clientStageService");
 const app = express();
 
 // =================================================
@@ -80,6 +82,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/client-fees", clientFeeRoutes);
 app.use("/api/staff-targets", staffTargetRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/stages", stageRoutes);
 // =================================================
 // HEALTH CHECK
 // =================================================
@@ -118,6 +121,8 @@ const startServer = async () => {
 
     // Make sure Super Admin exists
     await createAdmin();
+
+    await seedDefaultClientStages();
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running successfully on port ${PORT}`);

@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
-
-const { CLIENT_STAGES } = require("../constants/clientStages");
-
+// =================================================
+// CLIENT STAGE HISTORY
+// =================================================
 const clientStageHistorySchema = new mongoose.Schema(
   {
     clientRef: {
@@ -10,64 +10,66 @@ const clientStageHistorySchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-
     clientId: {
       type: String,
       required: true,
-      trim: true,
       index: true,
+      trim: true,
     },
-
     fromStage: {
       type: String,
-      enum: [...CLIENT_STAGES, null],
       default: null,
     },
-
+    fromStageName: {
+      type: String,
+      default: null,
+    },
     toStage: {
       type: String,
-      enum: CLIENT_STAGES,
       required: true,
+      trim: true,
     },
-
+    toStageName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    // Snapshot of the configured amount at the time
+    // the client entered this stage.
+    toStageAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     note: {
       type: String,
       trim: true,
-      maxlength: 2000,
       default: "",
     },
-
     changedBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
       required: true,
     },
-
     changedByRole: {
       type: String,
-      enum: ["superadmin", "staff"],
       required: true,
+      enum: ["superadmin", "staff"],
     },
-
     staffId: {
       type: String,
       default: null,
-      trim: true,
     },
-
     changedByName: {
       type: String,
       required: true,
-      trim: true,
     },
   },
   {
     timestamps: true,
   },
 );
-
 clientStageHistorySchema.index({
-  clientRef: 1,
+  clientId: 1,
   createdAt: -1,
 });
-
 module.exports = mongoose.model("ClientStageHistory", clientStageHistorySchema);

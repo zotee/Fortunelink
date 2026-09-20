@@ -1,56 +1,5 @@
 const mongoose = require("mongoose");
 const Counter = require("./CounterModel");
-
-// =================================================
-// DROPDOWN STAGES (for frontend only)
-// =================================================
-const CLIENT_STAGES = [
-  "registeredPaid",
-  "vacancySearching",
-  "interviewFixedPreparation",
-  "interviewFailed",
-  "jobOfferReceived",
-  "jobOfferAccepted",
-  "jobOfferRejected",
-  "visaDocumentsSubmitted",
-  "visaAppliedResultWaiting",
-  "visaApproved",
-  "visaRejected",
-  "companyJoining",
-  "employmentStartedCompanyJoined",
-  "visaRenewal1Year",
-  "visaRenewal3Years",
-  "visaRenewal5Years",
-  "returntoNepal",
-];
-
-// =================================================
-// STAGE → STATUS MAPPING
-// =================================================
-function mapStageToStatus(stage) {
-  const map = {
-    "registeredPaid": "Registered/Paid",
-    "vacancySearching": "Vacancy Searching",
-    "interviewFixedPreparation": "Interview Fixed / Preparation",
-    "interviewFailed": "Interview Failed",
-    "jobOfferReceived": "Naitei / Job Offer Received",
-    "jobOfferAccepted": "Job Offer Accepted",
-    "jobOfferRejected": "Job Offer Rejected",
-    "visaDocumentsSubmitted": "Visa Documents Submitted",
-    "visaAppliedResultWaiting": "Visa Applied / Result Waiting",
-    "visaApproved": "Visa Approved",
-    "visaRejected": "Visa Rejected",
-    "companyJoining": "Waiting for Nyusha / Company Joining",
-    "employmentStartedCompanyJoined": "Employment Started/Company Joined",
-    "visaRenewal1Year": "Visa Renewal - 1 Year",
-    "visaRenewal3Years": "Visa Renewal - 3 Years",
-    "visaRenewal5Years": "Visa Renewal - 5 Years",
-    "returntoNepal": "Return to Nepal",
-  };
-
-  return map[stage] || stage || "Processing";
-}
-
 // =================================================
 // CLIENT SCHEMA
 // =================================================
@@ -63,20 +12,16 @@ const clientSchema = new mongoose.Schema(
       trim: true,
       immutable: true,
     },
-
     fullName: {
       type: String,
       required: true,
       trim: true,
     },
-
     phone: {
       type: String,
       required: true,
       trim: true,
     },
-
-   
     currentVisaStatus: {
       type: String,
       required: true,
@@ -101,39 +46,34 @@ const clientSchema = new mongoose.Schema(
         "other",
       ],
     },
-
-   preferCategory: {
-  type: String,
-  enum: [
-    "newJob",
-    "jobChange",
-    "dependentVisaRenewal",
-    "visaServiceOnlyRenewal",
-    "visaServiceOnlyChange",
-    "otherVisaService",
-  ],
-  default: "otherVisaService",
-},
-
-    // =================================================
-    // CURRENT STAGE (FREE TEXT + DROPDOWN SUPPORT)
-    // =================================================
+    preferCategory: {
+      type: String,
+      enum: [
+        "newJob",
+        "jobChange",
+        "dependentVisaRenewal",
+        "visaServiceOnlyRenewal",
+        "visaServiceOnlyChange",
+        "otherVisaService",
+      ],
+      default: "otherVisaService",
+    },
+    // Stage key from ClientStage.key
     currentStage: {
       type: String,
       required: true,
       trim: true,
       index: true,
     },
-
-    // =================================================
-    // AUTO STATUS (MIRROR OF STAGE)
-    // =================================================
+    // Human readable snapshot.
+    // Always derived from ClientStage.name.
     clientStatus: {
       type: String,
-      default: "Registered/Paid",
+      required: true,
+      trim: true,
       index: true,
     },
-
+    // Stores Staff.staffId e.g. W-122261
     assignedStaff: {
       type: String,
       required: true,
@@ -143,13 +83,16 @@ const clientSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true },
-  }
+    toJSON: {
+      virtuals: true,
+    },
+    toObject: {
+      virtuals: true,
+    },
+  },
 );
-
 // =================================================
-// VIRTUAL STAFF
+// STAFF VIRTUAL
 // =================================================
 clientSchema.virtual("staff", {
   ref: "Staff",
@@ -157,62 +100,40 @@ clientSchema.virtual("staff", {
   foreignField: "staffId",
   justOne: true,
 });
-
 // =================================================
-// INDEX
+// INDEXES
 // =================================================
 clientSchema.index({
   assignedStaff: 1,
   createdAt: -1,
 });
-
+clientSchema.index({
+  currentStage: 1,
+  createdAt: -1,
+});
 // =================================================
 // AUTO CLIENT ID
 // =================================================
 clientSchema.pre("save", async function () {
-  if (!this.isNew || this.clientId) return;
-
+  if (!this.isNew || this.clientId) {
+    return;
+  }
   const counter = await Counter.findOneAndUpdate(
-    { _id: "ClientId" },
-    { $inc: { sequence_value: 1 } },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
+    {
+      _id: "ClientId",
+    },
+    {
+      $inc: {
+        sequence_value: 1,
+      },
+    },
+    {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true,
+    },
   );
-
   const startValue = 176587345;
   this.clientId = `J-${startValue + counter.sequence_value}`;
 });
-
-// =================================================
-// SYNC: SAVE HOOK
-// =================================================
-clientSchema.pre("save", function () {
-  if (this.isModified("currentStage")) {
-    this.clientStatus = mapStageToStatus(this.currentStage);
-  }
-});
-
-// =================================================
-// SYNC: UPDATE HOOK
-// =================================================
-clientSchema.pre("findOneAndUpdate", function () {
-  const update = this.getUpdate() || {};
-
-  const currentStage =
-    update.currentStage || update.$set?.currentStage;
-
-  if (!currentStage) return;
-
-  if (update.$set) {
-    update.$set.clientStatus = mapStageToStatus(currentStage);
-  } else {
-    update.clientStatus = mapStageToStatus(currentStage);
-  }
-
-  this.setUpdate(update);
-});
-
-// =================================================
-// EXPORT
-// =================================================
 module.exports = mongoose.model("Client", clientSchema);
-module.exports.CLIENT_STAGES = CLIENT_STAGES;
