@@ -10,6 +10,7 @@ const {
   deleteClient,
   assignClient,
   exportClients,
+  updateClientStatus,
 } = require("../controllers/clientController");
 
 const upload = require("../middleware/upload");
@@ -85,6 +86,9 @@ router.get("/", authorize("superadmin", "staff"), getAllClients);
 // =================================================
 
 router.patch("/:clientId/assign", authorize("superadmin"), assignClient);
+// routes/clientRoutes.js
+
+router.patch("/:clientId/status", updateClientStatus);
 
 // =================================================
 // GET CLIENT DETAILS

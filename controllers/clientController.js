@@ -1442,3 +1442,56 @@ exports.deleteClient = async (req, res) => {
     });
   }
 };
+
+// UPDATE CLIENT STATUS MANUALLY
+// PATCH /api/clients/:clientId/status
+
+exports.updateClientStatus = async (req, res) => {
+  try {
+    const clientId = String(req.params.clientId || "").trim();
+    const { clientStatus } = req.body;
+
+    if (!clientId) {
+      return res.status(400).json({
+        success: false,
+        message: "clientId is required",
+      });
+    }
+
+    if (!clientStatus || clientStatus.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        message: "clientStatus is required",
+      });
+    }
+
+    const updatedClient = await Client.findOneAndUpdate(
+      { clientId },
+      { $set: { clientStatus: clientStatus.trim() } },
+      {
+        returnDocument: "after", // ✅ correct (no deprecation warning)
+        runValidators: true,
+      }
+    );
+
+    if (!updatedClient) {
+      return res.status(404).json({
+        success: false,
+        message: "Client not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Client status updated manually",
+      data: updatedClient,
+    });
+  } catch (error) {
+    console.error("UPDATE CLIENT STATUS ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to update status",
+    });
+  }
+};
