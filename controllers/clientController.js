@@ -1,3 +1,6 @@
+const fs = require("fs");
+const ExcelJS = require("exceljs");
+const PDFDocument = require("pdfkit");
 const Client = require("../model/clientSchema");
 const Profile = require("../model/profileSchema");
 const Staff = require("../model/staffSchema");
@@ -58,10 +61,6 @@ const selectFields = (source, fields) => {
 
 // =================================================
 // REMOVE EMPTY VALUES
-//
-// This prevents optional enum fields such as
-// visaStatus: ""
-// from causing Mongoose validation errors.
 // =================================================
 
 const removeEmptyStrings = (data) => {
@@ -135,43 +134,7 @@ const canAccessClient = (req, client) => {
 };
 
 // =================================================
-// ATTACH STAFF INFORMATION
-// =================================================
-
-const attachStaffDetails = async (clients) => {
-  const staffIds = [
-    ...new Set(clients.map((client) => client.assignedStaff).filter(Boolean)),
-  ];
-
-  if (staffIds.length === 0) {
-    return clients.map((client) => ({
-      ...client,
-      assignedStaffDetails: null,
-    }));
-  }
-
-  const staffMembers = await Staff.find({
-    staffId: {
-      $in: staffIds,
-    },
-  })
-    .select("-password")
-    .lean();
-
-  const staffMap = new Map(staffMembers.map((staff) => [staff.staffId, staff]));
-
-  return clients.map((client) => ({
-    ...client,
-
-    assignedStaffDetails: staffMap.get(client.assignedStaff) || null,
-  }));
-};
-
-// =================================================
 // ESCAPE REGEX
-//
-// Prevent special regex characters from affecting
-// search behaviour.
 // =================================================
 
 const escapeRegex = (value) => {
@@ -180,19 +143,12 @@ const escapeRegex = (value) => {
 
 // =================================================
 // EXACT CASE-INSENSITIVE REGEX
-//
-// Useful for filters such as:
-// nationality=nepal
-//
-// Matches:
-// Nepal
-// NEPAL
-// nepal
 // =================================================
 
 const exactRegex = (value) => {
   return {
     $regex: `^${escapeRegex(value)}$`,
+
     $options: "i",
   };
 };
@@ -202,10 +158,19 @@ const exactRegex = (value) => {
 // =================================================
 
 const parseClientListQuery = (query) => {
-  const page = Math.max(Number.parseInt(query.page, 10) || 1, 1);
+  const page = Math.max(
+    Number.parseInt(query.page, 10) || 1,
+
+    1,
+  );
 
   const limit = Math.min(
-    Math.max(Number.parseInt(query.limit, 10) || 10, 1),
+    Math.max(
+      Number.parseInt(query.limit, 10) || 10,
+
+      1,
+    ),
+
     100,
   );
 
@@ -214,14 +179,18 @@ const parseClientListQuery = (query) => {
   const freeWord = String(query.free_word || "").trim();
 
   // =================================================
-  // SORT FIELD
+  // SORT ALLOWLIST
   // =================================================
 
   const sortFieldMap = {
     createdAt: "createdAt",
+
     updatedAt: "updatedAt",
+
     name: "fullName",
+
     fullName: "fullName",
+
     clientId: "clientId",
   };
 
@@ -241,35 +210,559 @@ const parseClientListQuery = (query) => {
 };
 
 // =================================================
+// BUILD COMMON CLIENT FILTER PIPELINE
+//
+// IMPORTANT:
+//
+// Used by:
+//
+// GET /api/clients
+// CSV export
+// PDF export
+// Excel export
+//
+// This guarantees that the table and exports use
+// exactly the same filtering rules.
+// =================================================
+
+const buildClientFilterPipeline = (req) => {
+  // =================================================
+  // CLIENT COLLECTION FILTERS
+  // =================================================
+
+  const clientFilter = {};
+
+  // =================================================
+  // ROLE ACCESS
+  // =================================================
+
+  if (req.user.role === "staff") {
+    clientFilter.assignedStaff = req.user.staffId;
+  }
+
+  if (req.user.role === "superadmin" && req.query.staffId) {
+    const staffId = normalizeStaffId(req.query.staffId);
+
+    if (staffId) {
+      clientFilter.assignedStaff = staffId;
+    }
+  }
+
+  // =================================================
+  // VISA TYPE
+  // =================================================
+
+  if (req.query.visaType) {
+    clientFilter.visaType = String(req.query.visaType).trim();
+  }
+
+  // =================================================
+  // CURRENT STAGE
+  // =================================================
+
+  if (req.query.currentStage) {
+    clientFilter.currentStage = String(req.query.currentStage).trim();
+  }
+
+  // =================================================
+  // COE STATUS
+  // =================================================
+
+  if (req.query.coeStatus) {
+    clientFilter.coeStatus = String(req.query.coeStatus).trim();
+  }
+
+  // =================================================
+  // LEGACY CLIENT STATUS
+  //
+  // Keep API compatibility.
+  // Main frontend filter no longer uses this.
+  // =================================================
+
+  if (req.query.clientStatus) {
+    clientFilter.clientStatus = String(req.query.clientStatus).trim();
+  }
+
+  // =================================================
+  // PROFILE FILTERS
+  // =================================================
+
+  const profileFilter = {};
+
+  // Japanese Level is selected from fixed values,
+  // therefore exact matching is appropriate.
+
+  if (req.query.japaneseLevel) {
+    profileFilter["profile.japaneseLanguageLevel"] = exactRegex(
+      req.query.japaneseLevel,
+    );
+  }
+
+  // Nationality is currently a text input.
+  // Therefore allow partial case-insensitive matching.
+
+  if (req.query.nationality) {
+    profileFilter["profile.nationality"] = {
+      $regex: escapeRegex(req.query.nationality),
+
+      $options: "i",
+    };
+  }
+
+  // =================================================
+  // PIPELINE
+  // =================================================
+
+  const pipeline = [
+    // -------------------------------------------------
+    // FILTER CLIENT FIRST
+    // -------------------------------------------------
+
+    {
+      $match: clientFilter,
+    },
+
+    // -------------------------------------------------
+    // JOIN PROFILE
+    // -------------------------------------------------
+
+    {
+      $lookup: {
+        from: Profile.collection.name,
+
+        localField: "clientId",
+
+        foreignField: "clientId",
+
+        as: "profile",
+      },
+    },
+
+    // -------------------------------------------------
+    // PROFILE ARRAY -> OBJECT
+    // -------------------------------------------------
+
+    {
+      $unwind: {
+        path: "$profile",
+
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+
+    // -------------------------------------------------
+    // JOIN STAFF
+    // -------------------------------------------------
+
+    {
+      $lookup: {
+        from: Staff.collection.name,
+
+        localField: "assignedStaff",
+
+        foreignField: "staffId",
+
+        as: "assignedStaffDetails",
+      },
+    },
+
+    // -------------------------------------------------
+    // STAFF ARRAY -> OBJECT
+    // -------------------------------------------------
+
+    {
+      $unwind: {
+        path: "$assignedStaffDetails",
+
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+  ];
+
+  // =================================================
+  // PROFILE FILTERS
+  // =================================================
+
+  if (Object.keys(profileFilter).length > 0) {
+    pipeline.push({
+      $match: profileFilter,
+    });
+  }
+
+  // =================================================
+  // FREE WORD SEARCH
+  // =================================================
+
+  const freeWord = String(req.query.free_word || "").trim();
+
+  if (freeWord) {
+    const searchRegex = {
+      $regex: escapeRegex(freeWord),
+
+      $options: "i",
+    };
+
+    pipeline.push({
+      $match: {
+        $or: [
+          // CLIENT
+
+          {
+            clientId: searchRegex,
+          },
+
+          {
+            fullName: searchRegex,
+          },
+
+          {
+            phone: searchRegex,
+          },
+
+          {
+            assignedStaff: searchRegex,
+          },
+
+          {
+            visaType: searchRegex,
+          },
+
+          {
+            coeStatus: searchRegex,
+          },
+
+          {
+            currentStage: searchRegex,
+          },
+
+          // PROFILE
+
+          {
+            "profile.email": searchRegex,
+          },
+
+          {
+            "profile.address": searchRegex,
+          },
+
+          {
+            "profile.nationality": searchRegex,
+          },
+
+          {
+            "profile.passportNumber": searchRegex,
+          },
+
+          {
+            "profile.statusOfResidence": searchRegex,
+          },
+
+          {
+            "profile.schoolName": searchRegex,
+          },
+
+          {
+            "profile.course": searchRegex,
+          },
+
+          {
+            "profile.jobCategory": searchRegex,
+          },
+
+          {
+            "profile.jobTitle": searchRegex,
+          },
+
+          {
+            "profile.companyName": searchRegex,
+          },
+
+          {
+            "profile.workLocation": searchRegex,
+          },
+
+          {
+            "profile.japaneseLanguageLevel": searchRegex,
+          },
+
+          // STAFF
+
+          {
+            "assignedStaffDetails.name": searchRegex,
+          },
+
+          {
+            "assignedStaffDetails.email": searchRegex,
+          },
+        ],
+      },
+    });
+  }
+
+  // =================================================
+  // REMOVE PRIVATE STAFF DATA
+  // =================================================
+
+  pipeline.push({
+    $unset: ["assignedStaffDetails.password"],
+  });
+
+  return pipeline;
+};
+
+// =================================================
+// EXPORT VALUE
+// =================================================
+
+const normalizeExportValue = (value) => {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  return String(value);
+};
+
+// =================================================
+// PROTECT CSV / EXCEL FROM FORMULA INJECTION
+// =================================================
+
+const spreadsheetSafeValue = (value) => {
+  let text = normalizeExportValue(value);
+
+  if (/^[=+\-@]/.test(text)) {
+    text = `'${text}`;
+  }
+
+  return text;
+};
+
+// =================================================
+// CSV VALUE
+// =================================================
+
+const csvValue = (value) => {
+  const safeValue = spreadsheetSafeValue(value);
+  const escaped = safeValue.replace(/"/g, '""');
+  return `"${escaped}"`;
+};
+
+// =================================================
+// EXPORT COLUMNS
+//
+// CSV + Excel + PDF use this same list.
+// =================================================
+
+const CLIENT_EXPORT_COLUMNS = [
+  {
+    header: "Client ID",
+    value: (row) => row.clientId,
+  },
+  {
+    header: "Full Name",
+    value: (row) => row.fullName,
+  },
+  {
+    header: "Phone",
+    value: (row) => row.phone,
+  },
+  {
+    header: "Visa Type",
+    value: (row) => row.visaType,
+  },
+  {
+    header: "COE Status",
+    value: (row) => row.coeStatus,
+  },
+  {
+    header: "Current Stage",
+    value: (row) => row.currentStage,
+  },
+  {
+    header: "Client Status",
+    value: (row) => row.clientStatus,
+  },
+  {
+    header: "Assigned Staff ID",
+    value: (row) => row.assignedStaff,
+  },
+  {
+    header: "Assigned Staff Name",
+    value: (row) => row.assignedStaffDetails?.name,
+  },
+  {
+    header: "Assigned Staff Email",
+    value: (row) => row.assignedStaffDetails?.email,
+  },
+  {
+    header: "Assigned Staff Phone",
+    value: (row) => row.assignedStaffDetails?.phone,
+  },
+  {
+    header: "Assigned Staff Location",
+    value: (row) => row.assignedStaffDetails?.location,
+  },
+  {
+    header: "Date of Birth",
+    value: (row) => row.profile?.dateOfBirth,
+  },
+  {
+    header: "Gender",
+    value: (row) => row.profile?.gender,
+  },
+  {
+    header: "Email",
+    value: (row) => row.profile?.email,
+  },
+  {
+    header: "Address",
+    value: (row) => row.profile?.address,
+  },
+  {
+    header: "Nationality",
+    value: (row) => row.profile?.nationality,
+  },
+  {
+    header: "Passport Number",
+    value: (row) => row.profile?.passportNumber,
+  },
+  {
+    header: "Passport Expiry Date",
+    value: (row) => row.profile?.passportExpiryDate,
+  },
+  {
+    header: "Status of Residence",
+    value: (row) => row.profile?.statusOfResidence,
+  },
+  {
+    header: "Last Qualification",
+    value: (row) => row.profile?.lastQualification,
+  },
+  {
+    header: "Japanese Language Level",
+    value: (row) => row.profile?.japaneseLanguageLevel,
+  },
+  {
+    header: "School Name",
+    value: (row) => row.profile?.schoolName,
+  },
+  {
+    header: "Course",
+    value: (row) => row.profile?.course,
+  },
+  {
+    header: "Intake",
+    value: (row) => row.profile?.intake,
+  },
+  {
+    header: "Job Category",
+    value: (row) => row.profile?.jobCategory,
+  },
+  {
+    header: "Job Title",
+    value: (row) => row.profile?.jobTitle,
+  },
+  {
+    header: "Company Name",
+    value: (row) => row.profile?.companyName,
+  },
+  {
+    header: "Work Location",
+    value: (row) => row.profile?.workLocation,
+  },
+  {
+    header: "Sponsor Name",
+    value: (row) => row.profile?.sponsorName,
+  },
+  {
+    header: "Sponsor Relationship",
+    value: (row) => row.profile?.sponsorRelationship,
+  },
+  {
+    header: "Sponsor Status of Residence",
+    value: (row) => row.profile?.sponsorStatusOfResidence,
+  },
+  {
+    header: "Visa Status",
+    value: (row) => row.profile?.visaStatus,
+  },
+  {
+    header: "Client Image",
+    value: (row) => row.profile?.clientImage,
+  },
+  {
+    header: "CV",
+    value: (row) => row.profile?.cv,
+  },
+  {
+    header: "Created At",
+    value: (row) => row.createdAt,
+  },
+  {
+    header: "Updated At",
+    value: (row) => row.updatedAt,
+  },
+];
+
+// =================================================
+// GET ALL FILTERED CLIENTS FOR EXPORT
+//
+// IMPORTANT:
+// No pagination.
+// =================================================
+
+const getFilteredClientsForExport = async (req) => {
+  const { sortBy, sortOrder } = parseClientListQuery(req.query);
+
+  const pipeline = buildClientFilterPipeline(req);
+
+  pipeline.push({
+    $sort: {
+      [sortBy]: sortOrder,
+    },
+  });
+
+  return Client.aggregate(pipeline);
+};
+
+// =================================================
+// EXCEL COLUMN NAME
+// =================================================
+
+const getExcelColumnName = (columnNumber) => {
+  let number = columnNumber;
+
+  let result = "";
+
+  while (number > 0) {
+    const remainder = (number - 1) % 26;
+
+    result = String.fromCharCode(65 + remainder) + result;
+
+    number = Math.floor((number - 1) / 26);
+  }
+
+  return result;
+};
+
+// =================================================
 // CREATE CLIENT
-//
-// SUPERADMIN:
-// must choose assignedStaff
-//
-// STAFF:
-// automatically assigned to themselves
-//
-// POST /api/clients
 // =================================================
 
 exports.createClient = async (req, res) => {
   let createdClient = null;
+
   let createdProfile = null;
 
   try {
-    // =================================================
-    // CLIENT DATA
-    // =================================================
-
     const clientData = selectFields(req.body, CLIENT_FIELDS);
 
     clientData.fullName = String(clientData.fullName || "").trim();
 
     clientData.phone = String(clientData.phone || "").trim();
-
-    // =================================================
-    // REQUIRED FIELDS
-    // =================================================
 
     if (!clientData.fullName || !clientData.phone || !clientData.visaType) {
       return res.status(400).json({
@@ -281,8 +774,6 @@ exports.createClient = async (req, res) => {
 
     // =================================================
     // SUPERADMIN
-    //
-    // Admin MUST choose Staff
     // =================================================
 
     if (req.user.role === "superadmin") {
@@ -319,9 +810,6 @@ exports.createClient = async (req, res) => {
 
     // =================================================
     // STAFF
-    //
-    // Automatically assign to logged-in Staff
-    // Any assignedStaff sent from frontend is ignored.
     // =================================================
 
     if (req.user.role === "staff") {
@@ -343,22 +831,12 @@ exports.createClient = async (req, res) => {
     createdClient = await Client.create(clientData);
 
     // =================================================
-    // PREPARE PROFILE DATA
-    //
-    // IMPORTANT:
-    // Remove empty optional values.
-    //
-    // visaStatus: ""
-    // becomes removed completely.
+    // PROFILE
     // =================================================
 
     const profileData = removeEmptyStrings(
       selectFields(req.body, PROFILE_FIELDS),
     );
-
-    // =================================================
-    // CREATE PROFILE
-    // =================================================
 
     createdProfile = await Profile.create({
       clientId: createdClient.clientId,
@@ -369,10 +847,6 @@ exports.createClient = async (req, res) => {
 
       ...getUploadedFiles(req),
     });
-
-    // =================================================
-    // STAFF DETAILS
-    // =================================================
 
     const staffDetails = await findStaffByStaffId(createdClient.assignedStaff);
 
@@ -390,17 +864,9 @@ exports.createClient = async (req, res) => {
       },
     });
   } catch (error) {
-    // =================================================
-    // ROLLBACK PROFILE
-    // =================================================
-
     if (createdProfile?._id) {
       await Profile.findByIdAndDelete(createdProfile._id).catch(() => {});
     }
-
-    // =================================================
-    // ROLLBACK CLIENT
-    // =================================================
 
     if (createdClient?._id) {
       await Profile.deleteOne({
@@ -412,10 +878,6 @@ exports.createClient = async (req, res) => {
 
     console.error("CREATE CLIENT ERROR:", error);
 
-    // =================================================
-    // DUPLICATE
-    // =================================================
-
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
@@ -426,13 +888,10 @@ exports.createClient = async (req, res) => {
       });
     }
 
-    // =================================================
-    // VALIDATION
-    // =================================================
-
     if (error.name === "ValidationError") {
       return res.status(400).json({
         success: false,
+
         message: error.message,
       });
     }
@@ -447,48 +906,6 @@ exports.createClient = async (req, res) => {
 
 // =================================================
 // GET CLIENT LIST
-//
-// SUPERADMIN:
-// sees all clients
-//
-// STAFF:
-// only sees own assigned clients
-//
-// GET /api/clients
-// =================================================
-// =================================================
-// GET CLIENT LIST
-//
-// SERVER-SIDE:
-// - Free word search
-// - Filters
-// - Pagination
-// - Sorting
-//
-// SUPERADMIN:
-// sees all clients
-// may filter by staffId
-//
-// STAFF:
-// only sees own assigned clients
-// staffId query is ignored
-//
-// GET /api/clients
-//
-// EXAMPLE:
-//
-// /api/clients
-// ?free_word=ram
-// &staffId=W-122290
-// &visaType=Student
-// &currentStage=Visa Applied / Result Waiting
-// &coeStatus=Processing
-// &japaneseLevel=N3
-// &nationality=Nepal
-// &page=1
-// &limit=10
-// &sortBy=createdAt
-// &sortOrder=desc
 // =================================================
 
 exports.getAllClients = async (req, res) => {
@@ -496,258 +913,7 @@ exports.getAllClients = async (req, res) => {
     const { page, limit, skip, freeWord, sortBy, sortOrder } =
       parseClientListQuery(req.query);
 
-    // =================================================
-    // CLIENT COLLECTION FILTERS
-    //
-    // These fields exist directly in Client.
-    // =================================================
-    const clientFilter = {};
-    // =================================================
-    // ROLE / STAFF FILTER
-    // =================================================
-
-    if (req.user.role === "staff") {
-      // Staff can ONLY see their own clients.
-      clientFilter.assignedStaff = req.user.staffId;
-    }
-
-    if (req.user.role === "superadmin" && req.query.staffId) {
-      const staffId = normalizeStaffId(req.query.staffId);
-      if (staffId) {
-        clientFilter.assignedStaff = staffId;
-      }
-    }
-
-    // =================================================
-    // VISA TYPE
-    // =================================================
-
-    if (req.query.visaType) {
-      clientFilter.visaType = String(req.query.visaType).trim();
-    }
-
-    // =================================================
-    // CURRENT STAGE
-    // =================================================
-
-    if (req.query.currentStage) {
-      clientFilter.currentStage = String(req.query.currentStage).trim();
-    }
-
-    // =================================================
-    // COE STATUS
-    // =================================================
-
-    if (req.query.coeStatus) {
-      clientFilter.coeStatus = String(req.query.coeStatus).trim();
-    }
-
-    // =================================================
-    // CLIENT STATUS
-    // =================================================
-
-    if (req.query.clientStatus) {
-      clientFilter.clientStatus = String(req.query.clientStatus).trim();
-    }
-
-    // =================================================
-    // PROFILE FILTERS
-    //
-    // These fields exist in Profile.
-    // We apply them after $lookup.
-    // =================================================
-
-    const profileFilter = {};
-
-    // =================================================
-    // JAPANESE LANGUAGE LEVEL
-    // =================================================
-
-    if (req.query.japaneseLevel) {
-      profileFilter["profile.japaneseLanguageLevel"] = exactRegex(
-        req.query.japaneseLevel,
-      );
-    }
-
-    // =================================================
-    // NATIONALITY
-    // =================================================
-
-    if (req.query.nationality) {
-      profileFilter["profile.nationality"] = exactRegex(req.query.nationality);
-    }
-
-    // =================================================
-    // AGGREGATION PIPELINE
-    // =================================================
-
-    const pipeline = [];
-
-    // =================================================
-    // 1. FILTER CLIENT FIRST
-    //
-    // Do this before lookup for better performance.
-    // =================================================
-
-    pipeline.push({
-      $match: clientFilter,
-    });
-
-    // =================================================
-    // 2. JOIN PROFILE
-    // =================================================
-
-    pipeline.push({
-      $lookup: {
-        from: Profile.collection.name,
-        localField: "clientId",
-        foreignField: "clientId",
-        as: "profile",
-      },
-    });
-
-    // =================================================
-    // 3. PROFILE ARRAY -> OBJECT
-    // =================================================
-
-    pipeline.push({
-      $unwind: {
-        path: "$profile",
-        preserveNullAndEmptyArrays: true,
-      },
-    });
-
-    // =================================================
-    // 4. JOIN ASSIGNED STAFF
-    // =================================================
-
-    pipeline.push({
-      $lookup: {
-        from: Staff.collection.name,
-        localField: "assignedStaff",
-        foreignField: "staffId",
-        as: "assignedStaffDetails",
-      },
-    });
-
-    // =================================================
-    // 5. STAFF ARRAY -> OBJECT
-    // =================================================
-
-    pipeline.push({
-      $unwind: {
-        path: "$assignedStaffDetails",
-        preserveNullAndEmptyArrays: true,
-      },
-    });
-
-    // =================================================
-    // 6. PROFILE FILTERS
-    // =================================================
-
-    if (Object.keys(profileFilter).length > 0) {
-      pipeline.push({
-        $match: profileFilter,
-      });
-    }
-
-    // =================================================
-    // 7. FREE WORD SEARCH
-    //
-    // One search field searches multiple Client
-    // and Profile fields.
-    // =================================================
-
-    if (freeWord) {
-      const searchRegex = {
-        $regex: escapeRegex(freeWord),
-        $options: "i",
-      };
-      pipeline.push({
-        $match: {
-          $or: [
-            // -----------------------------------------
-            // CLIENT
-            // -----------------------------------------
-            {
-              clientId: searchRegex,
-            },
-            {
-              fullName: searchRegex,
-            },
-            {
-              phone: searchRegex,
-            },
-            {
-              assignedStaff: searchRegex,
-            },
-            // -----------------------------------------
-            // PROFILE
-            // -----------------------------------------
-            {
-              "profile.email": searchRegex,
-            },
-            {
-              "profile.nationality": searchRegex,
-            },
-            {
-              "profile.passportNumber": searchRegex,
-            },
-            {
-              "profile.address": searchRegex,
-            },
-            {
-              "profile.schoolName": searchRegex,
-            },
-            {
-              "profile.companyName": searchRegex,
-            },
-            {
-              "profile.jobTitle": searchRegex,
-            },
-            {
-              "profile.jobCategory": searchRegex,
-            },
-
-            {
-              "profile.workLocation": searchRegex,
-            },
-            {
-              "profile.japaneseLanguageLevel": searchRegex,
-            },
-
-            // -----------------------------------------
-            // STAFF
-            // -----------------------------------------
-            {
-              "assignedStaffDetails.name": searchRegex,
-            },
-            {
-              "assignedStaffDetails.email": searchRegex,
-            },
-          ],
-        },
-      });
-    }
-
-    // =================================================
-    // 8. REMOVE STAFF PASSWORD
-    // =================================================
-
-    pipeline.push({
-      $unset: "assignedStaffDetails.password",
-    });
-
-    // =================================================
-    // 9. PAGINATION
-    //
-    // $facet gives us both:
-    //
-    // data
-    // total count
-    //
-    // from one query.
-    // =================================================
+    const pipeline = buildClientFilterPipeline(req);
 
     pipeline.push({
       $facet: {
@@ -757,13 +923,16 @@ exports.getAllClients = async (req, res) => {
               [sortBy]: sortOrder,
             },
           },
+
           {
             $skip: skip,
           },
+
           {
             $limit: limit,
           },
         ],
+
         pagination: [
           {
             $count: "total",
@@ -772,73 +941,292 @@ exports.getAllClients = async (req, res) => {
       },
     });
 
-    // =================================================
-    // RUN QUERY
-    // =================================================
     const result = await Client.aggregate(pipeline);
 
-    // =================================================
-    // RESULT
-    // =================================================
-
     const data = result?.[0]?.data || [];
-    const total = result?.[0]?.pagination?.[0]?.total || 0;
-    const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
 
-    // =================================================
-    // RESPONSE
-    // =================================================
+    const total = result?.[0]?.pagination?.[0]?.total || 0;
+
+    const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
 
     return res.status(200).json({
       success: true,
+
       count: data.length,
+
       data,
+
       pagination: {
         current_page: page,
+
         last_page: totalPages,
+
         per_page: limit,
+
         total,
+
         from: total === 0 ? null : skip + 1,
-        to: total === 0 ? null : Math.min(skip + data.length, total),
+
+        to:
+          total === 0
+            ? null
+            : Math.min(
+                skip + data.length,
+
+                total,
+              ),
+
         has_next_page: page < totalPages,
+
         has_previous_page: page > 1,
       },
 
       filters: {
         free_word: freeWord || null,
+
         staffId:
           req.user.role === "staff"
             ? req.user.staffId
             : req.query.staffId || null,
+
         visaType: req.query.visaType || null,
+
         currentStage: req.query.currentStage || null,
+
         coeStatus: req.query.coeStatus || null,
-        clientStatus: req.query.clientStatus || null,
+
         japaneseLevel: req.query.japaneseLevel || null,
+
         nationality: req.query.nationality || null,
+
         sortBy,
+
         sortOrder: sortOrder === 1 ? "asc" : "desc",
       },
     });
   } catch (error) {
     console.error("GET CLIENTS ERROR:", error);
+
     return res.status(500).json({
       success: false,
+
       message: error.message || "Failed to get clients.",
     });
   }
 };
 
 // =================================================
+// EXPORT CLIENTS
+//
+// GET /api/clients/export/csv
+// GET /api/clients/export/pdf
+// GET /api/clients/export/xlsx
+// =================================================
+
+exports.exportClients = async (req, res) => {
+  try {
+    const format = String(req.params.format || "")
+      .trim()
+      .toLowerCase();
+
+    const allowedFormats = ["csv", "pdf", "xlsx"];
+
+    if (!allowedFormats.includes(format)) {
+      return res.status(400).json({
+        success: false,
+        message: "Export format must be csv, pdf or xlsx.",
+      });
+    }
+
+    const clients = await getFilteredClientsForExport(req);
+    const date = new Date().toISOString().slice(0, 10);
+
+    // =================================================
+    // CSV
+    // =================================================
+
+    if (format === "csv") {
+      const header = CLIENT_EXPORT_COLUMNS.map((column) =>
+        csvValue(column.header),
+      ).join(",");
+
+      const rows = clients.map((client) =>
+        CLIENT_EXPORT_COLUMNS.map((column) =>
+          csvValue(column.value(client)),
+        ).join(","),
+      );
+
+      const csv = [header, ...rows].join("\r\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="clients-${date}.csv"`,
+      );
+
+      // UTF-8 BOM for Excel/Japanese support
+      return res.status(200).send(`\uFEFF${csv}`);
+    }
+
+    // =================================================
+    // EXCEL
+    // =================================================
+
+    if (format === "xlsx") {
+      const workbook = new ExcelJS.Workbook();
+
+      workbook.creator = "Fortune Link";
+
+      workbook.created = new Date();
+
+      const worksheet = workbook.addWorksheet("Clients");
+
+      worksheet.columns = CLIENT_EXPORT_COLUMNS.map((column, index) => ({
+        header: column.header,
+
+        key: `column_${index}`,
+
+        width: 24,
+      }));
+
+      for (const client of clients) {
+        const values = CLIENT_EXPORT_COLUMNS.map((column) =>
+          spreadsheetSafeValue(column.value(client)),
+        );
+
+        worksheet.addRow(values);
+      }
+
+      worksheet.getRow(1).font = {
+        bold: true,
+      };
+
+      worksheet.views = [
+        {
+          state: "frozen",
+
+          ySplit: 1,
+        },
+      ];
+
+      const lastColumn = getExcelColumnName(CLIENT_EXPORT_COLUMNS.length);
+
+      worksheet.autoFilter = `A1:${lastColumn}1`;
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="clients-${date}.xlsx"`,
+      );
+
+      await workbook.xlsx.write(res);
+
+      return res.end();
+    }
+
+    // =================================================
+    // PDF
+    //
+    // One client per section/page because all client
+    // details cannot fit properly into one huge table.
+    // =================================================
+
+    if (format === "pdf") {
+      res.setHeader("Content-Type", "application/pdf");
+
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="clients-${date}.pdf"`,
+      );
+
+      const doc = new PDFDocument({
+        size: "A4",
+
+        margin: 40,
+
+        info: {
+          Title: "Filtered Client Export",
+        },
+      });
+
+      doc.pipe(res);
+
+      // =================================================
+      // OPTIONAL UNICODE FONT
+      //
+      // For Japanese text:
+      // set PDF_FONT_PATH in environment to a
+      // Unicode/CJK-capable .ttf/.otf font.
+      // =================================================
+
+      const pdfFontPath = process.env.PDF_FONT_PATH;
+
+      if (pdfFontPath && fs.existsSync(pdfFontPath)) {
+        doc.font(pdfFontPath);
+      } else {
+        doc.font("Helvetica");
+      }
+
+      doc.fontSize(18).text("Filtered Client Export");
+
+      doc.moveDown(0.25);
+
+      doc.fontSize(9).text(`Generated: ${new Date().toISOString()}`);
+
+      doc.text(`Total Clients: ${clients.length}`);
+
+      doc.moveDown();
+
+      for (let index = 0; index < clients.length; index += 1) {
+        const client = clients[index];
+
+        if (index > 0) {
+          doc.addPage();
+        }
+
+        doc
+          .fontSize(14)
+          .text(`${client.clientId || "-"} - ${client.fullName || "-"}`);
+
+        doc.moveDown(0.5);
+
+        for (const column of CLIENT_EXPORT_COLUMNS) {
+          if (doc.y > doc.page.height - 70) {
+            doc.addPage();
+          }
+
+          const value = normalizeExportValue(column.value(client));
+
+          doc.fontSize(9).text(`${column.header}: ${value || "-"}`, {
+            width: doc.page.width - 80,
+          });
+        }
+      }
+
+      doc.end();
+
+      return;
+    }
+  } catch (error) {
+    console.error("EXPORT CLIENTS ERROR:", error);
+
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+
+        message: error.message || "Failed to export clients.",
+      });
+    }
+
+    return;
+  }
+};
+
+// =================================================
 // GET CLIENT DETAILS
-//
-// SUPERADMIN:
-// can access any client
-//
-// STAFF:
-// only own assigned client
-//
-// GET /api/clients/:clientId
 // =================================================
 
 exports.getClientDetails = async (req, res) => {
@@ -859,10 +1247,6 @@ exports.getClientDetails = async (req, res) => {
       });
     }
 
-    // =================================================
-    // ACCESS
-    // =================================================
-
     if (!canAccessClient(req, client)) {
       return res.status(403).json({
         success: false,
@@ -870,10 +1254,6 @@ exports.getClientDetails = async (req, res) => {
         message: "You are not authorized to access this client.",
       });
     }
-
-    // =================================================
-    // PROFILE + STAFF
-    // =================================================
 
     const [profile, staffDetails] = await Promise.all([
       Profile.findOne({
@@ -907,16 +1287,6 @@ exports.getClientDetails = async (req, res) => {
 
 // =================================================
 // UPDATE CLIENT
-//
-// SUPERADMIN:
-// can edit any client
-//
-// STAFF:
-// can edit own client
-//
-// STAFF cannot reassign.
-//
-// PATCH /api/clients/:clientId
 // =================================================
 
 exports.updateClient = async (req, res) => {
@@ -924,10 +1294,6 @@ exports.updateClient = async (req, res) => {
     const clientId = decodeURIComponent(
       String(req.params.clientId || ""),
     ).trim();
-
-    // =================================================
-    // FIND CLIENT
-    // =================================================
 
     const existingClient = await Client.findOne({
       clientId,
@@ -941,10 +1307,6 @@ exports.updateClient = async (req, res) => {
       });
     }
 
-    // =================================================
-    // ACCESS
-    // =================================================
-
     if (!canAccessClient(req, existingClient)) {
       return res.status(403).json({
         success: false,
@@ -953,9 +1315,7 @@ exports.updateClient = async (req, res) => {
       });
     }
 
-    // =================================================
-    // STAFF CANNOT REASSIGN
-    // =================================================
+    // Staff cannot reassign clients
 
     if (req.user.role === "staff" && req.body.assignedStaff !== undefined) {
       return res.status(403).json({
@@ -965,16 +1325,12 @@ exports.updateClient = async (req, res) => {
       });
     }
 
-    // =================================================
-    // CLIENT UPDATES
-    // =================================================
-
     const clientUpdates = removeEmptyStrings(
       selectFields(req.body, CLIENT_FIELDS),
     );
 
     // =================================================
-    // ADMIN MAY CHANGE ASSIGNED STAFF
+    // ADMIN REASSIGNMENT
     // =================================================
 
     if (
@@ -1012,21 +1368,9 @@ exports.updateClient = async (req, res) => {
       clientUpdates.assignedStaff = assignedStaff;
     }
 
-    // =================================================
-    // SAVE CLIENT
-    // =================================================
-
     Object.assign(existingClient, clientUpdates);
 
     await existingClient.save();
-
-    // =================================================
-    // PROFILE UPDATES
-    //
-    // Empty strings are ignored.
-    // This also prevents enum validation errors
-    // during Edit Client.
-    // =================================================
 
     const profileUpdates = removeEmptyStrings({
       ...selectFields(req.body, PROFILE_FIELDS),
@@ -1052,10 +1396,6 @@ exports.updateClient = async (req, res) => {
       });
     }
 
-    // =================================================
-    // STAFF DETAILS
-    // =================================================
-
     const staffDetails = await findStaffByStaffId(existingClient.assignedStaff);
 
     return res.status(200).json({
@@ -1074,10 +1414,6 @@ exports.updateClient = async (req, res) => {
   } catch (error) {
     console.error("UPDATE CLIENT ERROR:", error);
 
-    // =================================================
-    // DUPLICATE
-    // =================================================
-
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
@@ -1088,13 +1424,10 @@ exports.updateClient = async (req, res) => {
       });
     }
 
-    // =================================================
-    // VALIDATION
-    // =================================================
-
     if (error.name === "ValidationError") {
       return res.status(400).json({
         success: false,
+
         message: error.message,
       });
     }
@@ -1109,15 +1442,6 @@ exports.updateClient = async (req, res) => {
 
 // =================================================
 // ASSIGN / REASSIGN CLIENT
-//
-// SUPERADMIN ONLY
-//
-// PATCH /api/clients/:clientId/assign
-//
-// BODY:
-// {
-//   "staffId": "W-122290"
-// }
 // =================================================
 
 exports.assignClient = async (req, res) => {
@@ -1128,10 +1452,6 @@ exports.assignClient = async (req, res) => {
 
     const staffId = normalizeStaffId(req.body.staffId);
 
-    // =================================================
-    // STAFF ID REQUIRED
-    // =================================================
-
     if (!staffId) {
       return res.status(400).json({
         success: false,
@@ -1139,10 +1459,6 @@ exports.assignClient = async (req, res) => {
         message: "staffId is required.",
       });
     }
-
-    // =================================================
-    // FIND STAFF
-    // =================================================
 
     const staff = await findStaffByStaffId(staffId);
 
@@ -1154,10 +1470,6 @@ exports.assignClient = async (req, res) => {
       });
     }
 
-    // =================================================
-    // ACTIVE CHECK
-    // =================================================
-
     if (!staff.isActive) {
       return res.status(400).json({
         success: false,
@@ -1166,21 +1478,20 @@ exports.assignClient = async (req, res) => {
       });
     }
 
-    // =================================================
-    // ASSIGN CLIENT
-    // =================================================
-
     const client = await Client.findOneAndUpdate(
       {
         clientId,
       },
+
       {
         $set: {
           assignedStaff: staffId,
         },
       },
+
       {
         new: true,
+
         runValidators: true,
       },
     );
@@ -1218,13 +1529,10 @@ exports.assignClient = async (req, res) => {
 // =================================================
 // DELETE CLIENT
 //
-// SUPERADMIN ONLY
-//
-// DELETE /api/clients/:clientId
-//
-// Temporary hard delete.
-// Later we'll change this to archive/soft-delete
-// before adding payment/history records.
+// NOTE:
+// Still hard delete.
+// Later change to archive/soft-delete before
+// production financial history is finalized.
 // =================================================
 
 exports.deleteClient = async (req, res) => {
@@ -1232,10 +1540,6 @@ exports.deleteClient = async (req, res) => {
     const clientId = decodeURIComponent(
       String(req.params.clientId || ""),
     ).trim();
-
-    // =================================================
-    // FIND CLIENT
-    // =================================================
 
     const client = await Client.findOne({
       clientId,
@@ -1248,10 +1552,6 @@ exports.deleteClient = async (req, res) => {
         message: "Client not found.",
       });
     }
-
-    // =================================================
-    // DELETE PROFILE + CLIENT
-    // =================================================
 
     await Promise.all([
       Profile.deleteOne({
