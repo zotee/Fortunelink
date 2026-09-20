@@ -1,17 +1,25 @@
 const mongoose = require("mongoose");
+
+// =================================================
+// LABELS (Frontend only)
+// =================================================
 const EDUCATION_LABELS = {
   schoolName: "学校名 (School / College Name)",
   enrollmentDate: "入学年月 (Enrollment Date)",
   graduationDate: "卒業年月 (Graduation Date)",
   major: "専攻・分野 (Major / Field of Study)",
-
 };
+
 const EMPLOYMENT_LABELS = {
   companyName: "会社名 (Company Name)",
   startDate: "入社年月 (Start Date)",
   endDate: "退社年月 (End Date)",
   employmentType: "雇用形態 (Employment Type)",
 };
+
+// =================================================
+// SCHEMA
+// =================================================
 const profileSchema = new mongoose.Schema(
   {
     clientId: {
@@ -31,18 +39,17 @@ const profileSchema = new mongoose.Schema(
       index: true,
       immutable: true,
     },
-   
 
     dateOfBirth: {
       type: Date,
       default: null,
     },
 
-   gender: {
-  type: String,
-  enum: ["Male", "Female", "Other"],
-  default: null,
-},
+    gender: {
+      type: String,
+      enum: ["Male", "Female", "Other"],
+      default: null,
+    },
 
     email: {
       type: String,
@@ -50,65 +57,68 @@ const profileSchema = new mongoose.Schema(
       lowercase: true,
       default: "",
     },
-prefecture: {
-  type: String,
-  enum: [
-    "Hokkaido / 北海道",
-    "Aomori / 青森県",
-    "Iwate / 岩手県",
-    "Miyagi / 宮城県",
-    "Akita / 秋田県",
-    "Yamagata / 山形県",
-    "Fukushima / 福島県",
 
-    "Ibaraki / 茨城県",
-    "Tochigi / 栃木県",
-    "Gunma / 群馬県",
-    "Saitama / 埼玉県",
-    "Chiba / 千葉県",
-    "Tokyo / 東京都",
-    "Kanagawa / 神奈川県",
+    prefecture: {
+      type: String,
+      enum: [
+        "hokkaido",
+        "aomori",
+        "iwate",
+        "miyagi",
+        "akita",
+        "yamagata",
+        "fukushima",
 
-    "Niigata / 新潟県",
-    "Toyama / 富山県",
-    "Ishikawa / 石川県",
-    "Fukui / 福井県",
-    "Yamanashi / 山梨県",
-    "Nagano / 長野県",
-    "Gifu / 岐阜県",
-    "Shizuoka / 静岡県",
-    "Aichi / 愛知県",
+        "ibaraki",
+        "tochigi",
+        "gunma",
+        "saitama",
+        "chiba",
+        "tokyo",
+        "kanagawa",
 
-    "Mie / 三重県",
-    "Shiga / 滋賀県",
-    "Kyoto / 京都府",
-    "Osaka / 大阪府",
-    "Hyogo / 兵庫県",
-    "Nara / 奈良県",
-    "Wakayama / 和歌山県",
+        "niigata",
+        "toyama",
+        "ishikawa",
+        "fukui",
+        "yamanashi",
+        "nagano",
+        "gifu",
+        "shizuoka",
+        "aichi",
 
-    "Tottori / 鳥取県",
-    "Shimane / 島根県",
-    "Okayama / 岡山県",
-    "Hiroshima / 広島県",
-    "Yamaguchi / 山口県",
+        "mie",
+        "shiga",
+        "kyoto",
+        "osaka",
+        "hyogo",
+        "nara",
+        "wakayama",
 
-    "Tokushima / 徳島県",
-    "Kagawa / 香川県",
-    "Ehime / 愛媛県",
-    "Kochi / 高知県",
+        "tottori",
+        "shimane",
+        "okayama",
+        "hiroshima",
+        "yamaguchi",
 
-    "Fukuoka / 福岡県",
-    "Saga / 佐賀県",
-    "Nagasaki / 長崎県",
-    "Kumamoto / 熊本県",
-    "Oita / 大分県",
-    "Miyazaki / 宮崎県",
-    "Kagoshima / 鹿児島県",
+        "tokushima",
+        "kagawa",
+        "ehime",
+        "kochi",
 
-    "Okinawa / 沖縄県",
-  ],
-},
+        "fukuoka",
+        "saga",
+        "nagasaki",
+        "kumamoto",
+        "oita",
+        "miyazaki",
+        "kagoshima",
+
+        "okinawa",
+      ],
+      default: null,
+    },
+
     address: {
       type: String,
       trim: true,
@@ -118,19 +128,19 @@ prefecture: {
     nationality: {
       type: String,
       enum: [
-        "Nepali",
-        "Indian",
-        "Bangladeshi",
-        "Pakistani",
-        "Sri Lankan",
-        "Vietnamese",
-        "Myanmar",
-        "Indonesian",
-        "Filipino",
-        "Chinese",
-        "Other",
+        "nepali",
+        "indian",
+        "bangladeshi",
+        "pakistani",
+        "sri Lankan",
+        "vietnamese",
+        "myanmar",
+        "indonesian",
+        "filipino",
+        "chinese",
+        "other",
       ],
-      default: "Other",
+      default: "other",
     },
 
     passportNumber: {
@@ -144,77 +154,50 @@ prefecture: {
       default: null,
     },
 
-StatusOfResidence: {
-  type: String,
-  enum: [
-    "Student (留学)",
-    "Dependent (家族滞在)",
-    "Engineer / Specialist in Humanities / International Services (技術・人文知識・国際業務)",
-    "Specified Skilled Worker No. 1 (特定技能1号)",
-    "Specified Skilled Worker No. 2 (特定技能2号)",
-    "Technical Intern Training (技能実習)",
-    "Designated Activities (特定活動)",
-    "Highly Skilled Professional (高度専門職)",
-    "Skilled Labor (技能)",
-    "Intra-company Transferee (企業内転勤)",
-    "Nursing Care (介護)",
-    "Business Manager (経営・管理)",
-    "Instructor (教育)",
-    "Researcher (研究)",
-    "Professor (教授)",
-    "Medical Services (医療)",
-    "Permanent Resident (永住者)",
-    "Long-Term Resident (定住者)",
-    "Spouse or Child of Japanese National (日本人の配偶者等)",
-    "Spouse or Child of Permanent Resident (永住者の配偶者等)",
-    "Cultural Activities (文化活動)",
-    "Trainee (研修)",
-    "Other (その他)",
-  ],
-  default: "",
-},
-     education: {
-      schoolName: {
-        type: String,
-        trim: true,
-        default: "",
-      },
-
-      enrollmentDate: {
-        type: Date,
-        default: null,
-      },
-
-      graduationDate: {
-        type: Date,
-        default: null,
-      },
-
-      degree: {
-        type: String,
-        trim: true,
-        default: "",
-      },
-
-      major: {
-        type: String,
-        trim: true,
-        default: "",
-      },
+    StatusOfResidence: {
+      type: String,
+      enum: [
+        "student",
+        "dependent",
+        "engineerSpecialistInHumanitiesInternationalServices",
+        "specifiedSkilledWorkerNo1",
+        "specifiedSkilledWorkerNo2",
+        "technicalInternTraining",
+        "designatedActivities",
+        "highlySkilledProfessional",
+        "skilledLabor",
+        "intra-companyTransferee",
+        "nursingCare",
+        "businessManager",
+        "instructor",
+        "researcher",
+        "professor",
+        "medicalServices",
+        "permanentResident",
+        "long-TermResident",
+        "spouseOrChildOfJapaneseNational",
+        "spouseOrChildOfPermanentResident",
+        "culturalActivities",
+        "trainee",
+        "other (その他)",
+      ],
+      default: "",
     },
 
+    education: {
+      schoolName: { type: String, trim: true, default: "" },
+      enrollmentDate: { type: Date, default: null },
+      graduationDate: { type: Date, default: null },
+      degree: { type: String, trim: true, default: "" },
+      major: { type: String, trim: true, default: "" },
+    },
 
-   japaneseLanguageLevel: {
-  type: String,
-  enum: [
-    "N5",
-    "N4",
-    "N3",
-    "N2",
-    "N1",
-  ],
-  default: "",
-},
+    japaneseLanguageLevel: {
+      type: String,
+      enum: ["n5", "n4", "n3", "n2", "n1"],
+      default: "",
+    },
+
     intake: {
       type: String,
       trim: true,
@@ -222,36 +205,24 @@ StatusOfResidence: {
     },
 
     employmentHistory: [
-  {
-    companyName: {
-      type: String,
-      trim: true,
-      default: "",
-    },
+      {
+        companyName: { type: String, trim: true, default: "" },
+        startDate: { type: Date, default: null },
+        endDate: { type: Date, default: null },
+        employmentType: {
+          type: String,
+          enum: [
+            "full-time",
+            "part-time",
+            "contract",
+            "temporaryDispatchEmployee",
+            "other",
+          ],
+          default: "other",
+        },
+      },
+    ],
 
-    startDate: {
-      type: Date,
-      default: null,
-    },
-
-    endDate: {
-      type: Date,
-      default: null,
-    },
-
-    employmentType: {
-      type: String,
-      enum: [
-        "Full-time (正社員)",
-        "Part-time (アルバイト)",
-        "Contract (契約社員)",
-        "Temporary / Dispatch Employee (派遣社員)",
-        "Other (その他)",
-      ],
-      default: "Other (その他)",
-    },
-  },
-],
     remark: {
       type: String,
       trim: true,
@@ -270,9 +241,31 @@ StatusOfResidence: {
   },
   {
     timestamps: true,
-  },
+  }
 );
 
-module.exports = mongoose.model("Profile", profileSchema);
-module.exports.EDUCATION_LABELS = EDUCATION_LABELS;
-module.exports.EMPLOYMENT_LABELS = EMPLOYMENT_LABELS;
+// =================================================
+// VALIDATION: ensure client exists
+// =================================================
+profileSchema.pre("save", async function (next) {
+  const Client = mongoose.model("Client");
+
+  const client = await Client.findById(this.clientRef);
+
+  if (!client || client.clientId !== this.clientId) {
+    return next(new Error("clientId and clientRef mismatch"));
+  }
+
+  next();
+});
+
+// =================================================
+// EXPORT
+// =================================================
+const Profile = mongoose.model("Profile", profileSchema);
+
+module.exports = {
+  Profile,
+  EDUCATION_LABELS,
+  EMPLOYMENT_LABELS,
+};

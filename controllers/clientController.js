@@ -1,5 +1,5 @@
-const Client = require("../model/clientSchema");
-const Profile = require("../model/profileSchema");
+const { Client } = require("../model/clientSchema");
+const  { Profile } = require("../model/profileSchema");
 const Staff = require("../model/staffSchema");
 
 // =================================================
@@ -9,9 +9,11 @@ const Staff = require("../model/staffSchema");
 const CLIENT_FIELDS = [
   "fullName",
   "phone",
-  "visaType",
-  "coeStatus",
+  "currentVisaStatus",
+  "preferCategory",
+  "currentStage",
   "clientStatus",
+  "assignedStaff",
 ];
 
 // =================================================
@@ -19,27 +21,22 @@ const CLIENT_FIELDS = [
 // =================================================
 
 const PROFILE_FIELDS = [
+  "fullName",
   "dateOfBirth",
   "gender",
   "email",
   "address",
+  "prefecture",
   "nationality",
   "passportNumber",
   "passportExpiryDate",
   "statusOfResidence",
-  "lastQualification",
+  "education",
   "japaneseLanguageLevel",
-  "schoolName",
-  "course",
+  "employmentHistory",
   "intake",
-  "jobCategory",
-  "jobTitle",
-  "companyName",
-  "workLocation",
-  "sponsorName",
-  "sponsorRelationship",
-  "sponsorStatusOfResidence",
-  "visaStatus",
+  "remark",
+
 ];
 
 // =================================================
@@ -222,13 +219,12 @@ exports.createClient = async (req, res) => {
     // REQUIRED FIELDS
     // =================================================
 
-    if (!clientData.fullName || !clientData.phone || !clientData.visaType) {
-      return res.status(400).json({
-        success: false,
-
-        message: "fullName, phone and visaType are required.",
-      });
-    }
+   if (!clientData.fullName || !clientData.phone || !clientData.currentVisaStatus || !clientData.currentStage) {
+  return res.status(400).json({
+    success: false,
+    message: "fullName, phone, currentVisaStatus and currentStage are required.",
+  });
+}
 
     // =================================================
     // SUPERADMIN
