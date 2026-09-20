@@ -4,10 +4,11 @@ const mongoose = require("mongoose");
 // LABELS (Frontend only)
 // =================================================
 const EDUCATION_LABELS = {
-  schoolName: "学校名 (School / College Name)",
-  enrollmentDate: "入学年月 (Enrollment Date)",
-  graduationDate: "卒業年月 (Graduation Date)",
-  major: "専攻・分野 (Major / Field of Study)",
+  schoolName: "School / College Name",
+  educationType: "BAchelor",
+  enrollmentDate: "Enrollment Date",
+  graduationDate: "Graduation Date",
+  major: "Major / Field of Study",
 };
 
 const EMPLOYMENT_LABELS = {
@@ -154,7 +155,7 @@ const profileSchema = new mongoose.Schema(
       default: null,
     },
 
-    StatusOfResidence: {
+    statusOfResidence: {
       type: String,
       enum: [
         "student",
@@ -185,7 +186,27 @@ const profileSchema = new mongoose.Schema(
     },
 
     education: {
-      schoolName: { type: String, trim: true, default: "" },
+      schoolName: { 
+        type: String,
+        trim: true, 
+        default: ""
+
+       },
+      educationType:{
+         type: String,
+          enum: [
+           "Japanese Language School",
+           "Vocational School",
+           "University",
+           "Junior College",
+           "High School",
+           "Technical College",
+           "International School",
+           "Other",
+        ],
+           trim: true, 
+        default: ""
+       },
       enrollmentDate: { type: Date, default: null },
       graduationDate: { type: Date, default: null },
       degree: { type: String, trim: true, default: "" },
@@ -207,6 +228,7 @@ const profileSchema = new mongoose.Schema(
     employmentHistory: [
       {
         companyName: { type: String, trim: true, default: "" },
+        
         startDate: { type: Date, default: null },
         endDate: { type: Date, default: null },
         employmentType: {

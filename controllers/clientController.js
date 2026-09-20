@@ -55,9 +55,65 @@ const selectFields = (source, fields) => {
 const removeEmptyStrings = (data) => {
   return Object.fromEntries(
     Object.entries(data).filter(
-      ([, value]) => value !== "" && value !== undefined && value !== null,
+      ([, value]) =>
+        value !== undefined &&
+        value !== null &&
+        !(typeof value === "string" && value.trim() === ""),
     ),
   );
+};
+
+// =================================================
+// PARSE JSON ARRAY FROM MULTIPART FORM DATA
+// =================================================
+const parseJsonArray = (value, fieldName) => {
+  if (value === undefined || value === null || value === "") {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  try {
+    const parsedValue = JSON.parse(value);
+
+    if (!Array.isArray(parsedValue)) {
+      const error = new Error(`${fieldName} must be an array.`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    return parsedValue;
+  } catch (error) {
+    if (error.statusCode === 400) {
+      throw error;
+    }
+
+    const parseError = new Error(
+      `${fieldName} must contain a valid JSON array.`,
+    );
+    parseError.statusCode = 400;
+    throw parseError;
+  }
+};
+
+// =================================================
+// PREPARE PROFILE DATA
+// =================================================
+const prepareProfileData = (source) => {
+  const profileData = removeEmptyStrings(
+    selectFields(source, PROFILE_FIELDS),
+  );
+
+  if (profileData.employmentHistory !== undefined) {
+    profileData.employmentHistory = parseJsonArray(
+      profileData.employmentHistory,
+      "employmentHistory",
+    );
+  }
+
+  return profileData;
 };
 
 // =================================================
@@ -347,6 +403,9 @@ const buildClientFilterPipeline = (req) => {
             "profile.education.degree": searchRegex,
           },
           {
+            "profile.education.educationType": searchRegex,
+          },
+          {
             "profile.education.major": searchRegex,
           },
           {
@@ -537,6 +596,10 @@ const CLIENT_EXPORT_COLUMNS = [
     value: (row) => row.profile?.education?.schoolName,
   },
   {
+    header: "Education Type",
+    value: (row) => row.profile?.education?.educationType,
+  },
+  {
     header: "Education Enrollment Date",
     value: (row) => row.profile?.education?.enrollmentDate,
   },
@@ -702,9 +765,7 @@ exports.createClient = async (req, res) => {
     // =================================================
     // CREATE PROFILE
     // =================================================
-    const profileData = removeEmptyStrings(
-      selectFields(req.body, PROFILE_FIELDS),
-    );
+    const profileData = prepareProfileData(req.body);
 
     createdProfile = await Profile.create({
       clientId: createdClient.clientId,
@@ -750,6 +811,13 @@ exports.createClient = async (req, res) => {
     }
 
     if (error.name === "ValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    if (error.statusCode === 400) {
       return res.status(400).json({
         success: false,
         message: error.message,
@@ -1160,7 +1228,7 @@ exports.updateClient = async (req, res) => {
     await existingClient.save();
 
     const profileUpdates = removeEmptyStrings({
-      ...selectFields(req.body, PROFILE_FIELDS),
+      ...prepareProfileData(req.body),
       ...getUploadedFiles(req),
     });
 
@@ -1204,6 +1272,13 @@ exports.updateClient = async (req, res) => {
     }
 
     if (error.name === "ValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    if (error.statusCode === 400) {
       return res.status(400).json({
         success: false,
         message: error.message,
