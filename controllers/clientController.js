@@ -106,6 +106,40 @@ const prepareProfileData = (source) => {
     selectFields(source, PROFILE_FIELDS),
   );
 
+  // The client form uses currentVisaStatus, while Profile stores the same
+  // value as statusOfResidence. Keep an explicitly submitted
+  // statusOfResidence, otherwise copy currentVisaStatus into the profile.
+  if (
+    profileData.statusOfResidence === undefined &&
+    source.currentVisaStatus !== undefined &&
+    source.currentVisaStatus !== null &&
+    String(source.currentVisaStatus).trim() !== ""
+  ) {
+    profileData.statusOfResidence = String(
+      source.currentVisaStatus,
+    ).trim();
+  }
+
+  // Accept the frontend/query naming while preserving the Profile schema's
+  // existing japaneseLanguageLevel field.
+  if (
+    profileData.japaneseLanguageLevel === undefined &&
+    source.japaneseLevel !== undefined &&
+    source.japaneseLevel !== null &&
+    String(source.japaneseLevel).trim() !== ""
+  ) {
+    profileData.japaneseLanguageLevel = String(
+      source.japaneseLevel,
+    ).trim();
+  }
+
+  if (profileData.education !== undefined) {
+    profileData.education = parseJsonArray(
+      profileData.education,
+      "education",
+    );
+  }
+
   if (profileData.employmentHistory !== undefined) {
     profileData.employmentHistory = parseJsonArray(
       profileData.employmentHistory,

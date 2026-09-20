@@ -193,39 +193,68 @@ const profileSchema = new mongoose.Schema(
   },
   default: null,
 },
-    education: {
-      schoolName: { 
-        type: String,
-        trim: true, 
-        default: ""
-
-       },
-      educationType:{
-         type: String,
-          enum: [
-           "Japanese Language School",
-           "Vocational School",
-           "University",
-           "Junior College",
-           "High School",
-           "Technical College",
-           "International School",
-           "Other",
-        ],
-           trim: true, 
-        default: ""
-       },
-      enrollmentDate: { type: Date, default: null },
-      graduationDate: { type: Date, default: null },
-      degree: { type: String, trim: true, default: "" },
-      major: { type: String, trim: true, default: "" },
+    education: [
+  {
+    schoolName: {
+      type: String,
+      trim: true,
+      default: "",
     },
+
+    educationType: {
+      type: String,
+      enum: [
+        "Japanese Language School",
+        "Vocational School",
+        "University",
+        "Junior College",
+        "High School",
+        "Technical College",
+        "International School",
+        "Other",
+      ],
+      set: (value) => {
+        if (value === undefined || value === null) {
+          return null;
+        }
+
+        const trimmedValue = String(value).trim();
+
+        return trimmedValue === "" ? null : trimmedValue;
+      },
+      default: null,
+    },
+
+    enrollmentDate: {
+      type: Date,
+      default: null,
+    },
+
+    graduationDate: {
+      type: Date,
+      default: null,
+    },
+
+    degree: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    major: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+  },
+],
 
     japaneseLanguageLevel: {
       type: String,
       enum: ["n5", "n4", "n3", "n2", "n1"],
       default: "",
     },
+  
 
     intake: {
       type: String,
