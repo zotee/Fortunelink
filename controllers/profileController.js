@@ -15,7 +15,7 @@ const PROFILE_FIELDS = [
   "nationality",
   "passportNumber",
   "passportExpiryDate",
-  "StatusOfResidence",
+  "statusOfResidence",
   "education",
   "japaneseLanguageLevel",
   "intake",

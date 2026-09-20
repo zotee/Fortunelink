@@ -156,35 +156,43 @@ const profileSchema = new mongoose.Schema(
     },
 
     statusOfResidence: {
-      type: String,
-      enum: [
-        "student",
-        "dependent",
-        "engineerSpecialistInHumanitiesInternationalServices",
-        "specifiedSkilledWorkerNo1",
-        "specifiedSkilledWorkerNo2",
-        "technicalInternTraining",
-        "designatedActivities",
-        "highlySkilledProfessional",
-        "skilledLabor",
-        "intra-companyTransferee",
-        "nursingCare",
-        "businessManager",
-        "instructor",
-        "researcher",
-        "professor",
-        "medicalServices",
-        "permanentResident",
-        "long-TermResident",
-        "spouseOrChildOfJapaneseNational",
-        "spouseOrChildOfPermanentResident",
-        "culturalActivities",
-        "trainee",
-        "other (その他)",
-      ],
-      default: "",
-    },
+  type: String,
+  enum: [
+    "student",
+    "dependent",
+    "engineerSpecialistInHumanitiesInternationalServices",
+    "specifiedSkilledWorkerNo1",
+    "specifiedSkilledWorkerNo2",
+    "technicalInternTraining",
+    "designatedActivities",
+    "highlySkilledProfessional",
+    "skilledLabor",
+    "intra-companyTransferee",
+    "nursingCare",
+    "businessManager",
+    "instructor",
+    "researcher",
+    "professor",
+    "medicalServices",
+    "permanentResident",
+    "long-TermResident",
+    "spouseOrChildOfJapaneseNational",
+    "spouseOrChildOfPermanentResident",
+    "culturalActivities",
+    "trainee",
+    "other",
+  ],
+  set: (value) => {
+    if (value === undefined || value === null) {
+      return null;
+    }
 
+    const trimmedValue = String(value).trim();
+
+    return trimmedValue === "" ? null : trimmedValue;
+  },
+  default: null,
+},
     education: {
       schoolName: { 
         type: String,

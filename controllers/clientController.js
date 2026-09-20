@@ -29,7 +29,7 @@ const PROFILE_FIELDS = [
   "nationality",
   "passportNumber",
   "passportExpiryDate",
-  "StatusOfResidence",
+  "statusOfResidence",
   "education",
   "japaneseLanguageLevel",
   "employmentHistory",
@@ -394,7 +394,7 @@ const buildClientFilterPipeline = (req) => {
             "profile.passportNumber": searchRegex,
           },
           {
-            "profile.StatusOfResidence": searchRegex,
+            "profile.statusOfResidence": searchRegex,
           },
           {
             "profile.education.schoolName": searchRegex,
@@ -589,7 +589,7 @@ const CLIENT_EXPORT_COLUMNS = [
   },
   {
     header: "Status of Residence",
-    value: (row) => row.profile?.StatusOfResidence,
+    value: (row) => row.profile?.statusOfResidence,
   },
   {
     header: "School Name",
