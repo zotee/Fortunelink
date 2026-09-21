@@ -8,7 +8,7 @@ const DEFAULT_CLIENT_STAGES = [
   {
     key: "registeredPaid",
     name: "Registered / Paid",
-    amount: 0,
+    amount: 30000,
     displayOrder: 1,
   },
   {

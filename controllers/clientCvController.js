@@ -23,21 +23,59 @@ const canAccessClient = (req, client) => {
 };
 
 // =================================================
-// SAFE FILE NAME
+// FILE NAME
 // =================================================
 
 const sanitizeFileName = (value) => {
   return String(value || "client")
     .trim()
-    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-")
+    .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
-    .replace(/^-|-$|/g, "");
+    .replace(/^-|-$/g, "");
+};
+
+// =================================================
+// DOCUMENT TYPE
+// =================================================
+
+const normalizeDocumentType = (value) => {
+  const type = String(value || "combined")
+    .trim()
+    .toLowerCase();
+
+  if (["combined", "rirekisho", "career"].includes(type)) {
+    return type;
+  }
+
+  return null;
+};
+
+// =================================================
+// TYPE FILE LABEL
+// =================================================
+
+const getDocumentFileLabel = (type) => {
+  if (type === "rirekisho") {
+    return "Rirekisho";
+  }
+
+  if (type === "career") {
+    return "Career-History";
+  }
+
+  return "Japanese-CV";
 };
 
 // =================================================
 // GENERATE JAPANESE CV
 //
 // GET /api/clients/:clientId/japanese-cv
+//
+// Optional:
+// ?type=combined
+// ?type=rirekisho
+// ?type=career
 // =================================================
 
 exports.generateJapaneseCv = async (req, res) => {
@@ -49,7 +87,22 @@ exports.generateJapaneseCv = async (req, res) => {
     if (!clientId) {
       return res.status(400).json({
         success: false,
+
         message: "Client ID is required.",
+      });
+    }
+
+    // =================================================
+    // DOCUMENT TYPE
+    // =================================================
+
+    const documentType = normalizeDocumentType(req.query.type);
+
+    if (!documentType) {
+      return res.status(400).json({
+        success: false,
+
+        message: "CV type must be combined, rirekisho or career.",
       });
     }
 
@@ -64,13 +117,19 @@ exports.generateJapaneseCv = async (req, res) => {
     if (!client) {
       return res.status(404).json({
         success: false,
+
         message: "Client not found.",
       });
     }
 
+    // =================================================
+    // ACCESS
+    // =================================================
+
     if (!canAccessClient(req, client)) {
       return res.status(403).json({
         success: false,
+
         message: "You are not authorized to generate this client's CV.",
       });
     }
@@ -86,33 +145,56 @@ exports.generateJapaneseCv = async (req, res) => {
     if (!profile) {
       return res.status(404).json({
         success: false,
+
         message: "Client profile not found.",
       });
     }
 
     // =================================================
-    // PDF
+    // FILE NAME
     // =================================================
 
-    const safeName = sanitizeFileName(client.fullName);
+    const safeClientId = sanitizeFileName(client.clientId);
 
-    const filename = `${client.clientId}_${safeName}_Japanese-CV.pdf`;
+    const safeName = sanitizeFileName(client.fullName) || "Client";
+
+    const documentLabel = getDocumentFileLabel(documentType);
+
+    const filename = `${safeClientId}_${safeName}_${documentLabel}.pdf`;
+
+    // =================================================
+    // RESPONSE HEADERS
+    // =================================================
 
     res.setHeader("Content-Type", "application/pdf");
 
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader(
+      "Content-Disposition",
+      [
+        `attachment; filename="${filename}"`,
+        `filename*=UTF-8''${encodeURIComponent(filename)}`,
+      ].join("; "),
+    );
+
+    res.setHeader("Cache-Control", "no-store");
+
+    // =================================================
+    // PDF
+    // =================================================
 
     const doc = buildJapaneseCvPdf({
       client,
       profile,
+      type: documentType,
     });
 
     doc.on("error", (error) => {
-      console.error("JAPANESE CV PDF ERROR:", error);
+      console.error("JAPANESE CV PDF STREAM ERROR:", error);
 
       if (!res.headersSent) {
         res.status(500).json({
           success: false,
+
           message: "Failed to generate Japanese CV.",
         });
       } else {

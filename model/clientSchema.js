@@ -1,8 +1,10 @@
 const mongoose = require("mongoose");
 const Counter = require("./CounterModel");
+
 // =================================================
 // CLIENT SCHEMA
 // =================================================
+
 const clientSchema = new mongoose.Schema(
   {
     clientId: {
@@ -12,16 +14,19 @@ const clientSchema = new mongoose.Schema(
       trim: true,
       immutable: true,
     },
+
     fullName: {
       type: String,
       required: true,
       trim: true,
     },
+
     phone: {
       type: String,
       required: true,
       trim: true,
     },
+
     currentVisaStatus: {
       type: String,
       required: true,
@@ -46,6 +51,7 @@ const clientSchema = new mongoose.Schema(
         "other",
       ],
     },
+
     preferCategory: {
       type: String,
       enum: [
@@ -58,6 +64,7 @@ const clientSchema = new mongoose.Schema(
       ],
       default: "otherVisaService",
     },
+
     // Stage key from ClientStage.key
     currentStage: {
       type: String,
@@ -65,15 +72,16 @@ const clientSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
-    // Human readable snapshot.
-    // Always derived from ClientStage.name.
+
+    // Human-readable stage snapshot
     clientStatus: {
       type: String,
       required: true,
       trim: true,
       index: true,
     },
-    // Stores Staff.staffId e.g. W-122261
+
+    // Staff.staffId e.g. W-122261
     assignedStaff: {
       type: String,
       required: true,
@@ -91,33 +99,57 @@ const clientSchema = new mongoose.Schema(
     },
   },
 );
+
 // =================================================
 // STAFF VIRTUAL
 // =================================================
+
 clientSchema.virtual("staff", {
   ref: "Staff",
   localField: "assignedStaff",
   foreignField: "staffId",
   justOne: true,
 });
+
 // =================================================
 // INDEXES
 // =================================================
+
 clientSchema.index({
   assignedStaff: 1,
   createdAt: -1,
 });
+
 clientSchema.index({
   currentStage: 1,
   createdAt: -1,
 });
+
 // =================================================
 // AUTO CLIENT ID
+//
+// IMPORTANT:
+// If Client is being created inside a MongoDB transaction,
+// Counter uses the same session.
 // =================================================
+
 clientSchema.pre("save", async function () {
   if (!this.isNew || this.clientId) {
     return;
   }
+
+  const session = this.$session();
+
+  const options = {
+    new: true,
+    upsert: true,
+    setDefaultsOnInsert: true,
+  };
+
+  if (session) {
+    options.session = session;
+  }
+
   const counter = await Counter.findOneAndUpdate(
     {
       _id: "ClientId",
@@ -127,13 +159,12 @@ clientSchema.pre("save", async function () {
         sequence_value: 1,
       },
     },
-    {
-      new: true,
-      upsert: true,
-      setDefaultsOnInsert: true,
-    },
+    options,
   );
+
   const startValue = 176587345;
+
   this.clientId = `J-${startValue + counter.sequence_value}`;
 });
+
 module.exports = mongoose.model("Client", clientSchema);
