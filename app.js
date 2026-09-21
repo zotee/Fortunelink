@@ -24,6 +24,9 @@ const createAdmin = require("./scripts/createAdmin");
 const stageRoutes = require("./routes/stageRoutes");
 const { seedDefaultClientStages } = require("./services/clientStageService");
 const app = express();
+const multer = require("multer");
+
+
 
 // =================================================
 // REQUIRED ENVIRONMENT VARIABLES
@@ -72,10 +75,44 @@ app.use(express.urlencoded({ extended: true }));
 // STATIC UPLOADS
 // =================================================
 
-app.use(
-  "/uploads",
-  express.static(path.join(__dirname, "uploads")),
-);
+// app.use(
+//   "/uploads",
+//   express.static(path.join(__dirname, "uploads")),
+// );
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err);
+
+  if (err instanceof multer.MulterError) {
+    let message = err.message;
+
+    if (err.code === "LIMIT_FILE_SIZE") {
+      message = "File size must not exceed 10 MB";
+    }
+
+    if (err.code === "LIMIT_FILE_COUNT") {
+      message = "Too many files uploaded";
+    }
+
+    if (err.code === "LIMIT_UNEXPECTED_FILE") {
+      message =
+        typeof err.field === "string" &&
+        err.field.includes("must be")
+          ? err.field
+          : `Invalid or unexpected file: ${err.field}`;
+    }
+return res.status(400).json({
+      success: false,
+      message,
+      code: err.code,
+    });
+  }
+
+  return res.status(err.status || 500).json({
+    success: false,
+    message: err.message || "Internal Server Error",
+  });
+});
+
 
 // =================================================
 // ROUTES
