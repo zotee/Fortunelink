@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
-    "create-admin": "node scripts/createAdmin.js"
+    "create-admin": "node scripts/createAdmin.js",
+    "check:pdf-fonts": "node scripts/checkPdfFonts.js"
   },
   "keywords": [],
   "author": "",

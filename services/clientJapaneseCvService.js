@@ -2,6 +2,8 @@ const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
 
+const { PDF_FONT_NAMES, registerPdfFonts } = require("../config/pdfFonts");
+
 // =================================================
 // DESIGN
 // =================================================
@@ -16,8 +18,8 @@ const COLORS = {
   white: "#FFFFFF",
 };
 
-const FONT_REGULAR = "JapaneseRegular";
-const FONT_BOLD = "JapaneseBold";
+const FONT_REGULAR = PDF_FONT_NAMES.regular;
+const FONT_BOLD = PDF_FONT_NAMES.bold;
 
 const PAGE_MARGIN = {
   top: 42,
@@ -113,6 +115,7 @@ const getYearMonth = (value) => {
 
   return {
     year: String(date.getFullYear()),
+
     month: String(date.getMonth() + 1).padStart(2, "0"),
   };
 };
@@ -208,22 +211,22 @@ const educationTypeLabel = (value) => {
 
   const map = {
     highschool: "高等学校",
+
     "high school": "高等学校",
-    highSchool: "高等学校",
 
     university: "大学",
+
     college: "大学",
 
     vocational: "専門学校",
+
     vocationalschool: "専門学校",
-    vocationalSchool: "専門学校",
 
     languageschool: "日本語学校",
-    languageSchool: "日本語学校",
-    japaneseLanguageSchool: "日本語学校",
+
+    japaneselanguageschool: "日本語学校",
 
     graduateschool: "大学院",
-    graduateSchool: "大学院",
   };
 
   return map[value] || map[normalized] || safeText(value, "");
@@ -236,17 +239,19 @@ const employmentTypeLabel = (value) => {
 
   const map = {
     fulltime: "正社員",
+
     "full-time": "正社員",
-    fullTime: "正社員",
 
     parttime: "アルバイト",
+
     "part-time": "アルバイト",
-    partTime: "アルバイト",
 
     contract: "契約社員",
+
     contractemployee: "契約社員",
 
     temporary: "派遣社員",
+
     dispatch: "派遣社員",
 
     intern: "インターン",
@@ -258,8 +263,11 @@ const employmentTypeLabel = (value) => {
 const graduationStatusLabel = (value) => {
   const map = {
     graduated: "卒業",
+
     expectedGraduation: "卒業見込",
+
     currentlyEnrolled: "在学中",
+
     withdrawn: "中退",
   };
 
@@ -275,9 +283,13 @@ const japaneseLevelLabel = (value) => {
 
   const map = {
     n1: "JLPT N1",
+
     n2: "JLPT N2",
+
     n3: "JLPT N3",
+
     n4: "JLPT N4",
+
     n5: "JLPT N5",
   };
 
@@ -287,75 +299,6 @@ const japaneseLevelLabel = (value) => {
 // =================================================
 // FONT
 // =================================================
-
-const resolveFontPath = (value) => {
-  const raw = String(value || "").trim();
-
-  if (!raw) {
-    return "";
-  }
-
-  if (path.isAbsolute(raw)) {
-    return raw;
-  }
-
-  return path.resolve(process.cwd(), raw);
-};
-
-const findExistingFile = (candidates) => {
-  return candidates.find((candidate) => candidate && fs.existsSync(candidate));
-};
-
-const registerJapaneseFonts = (doc) => {
-  const regularConfigured = resolveFontPath(process.env.PDF_FONT_PATH);
-
-  const boldConfigured = resolveFontPath(process.env.PDF_FONT_BOLD_PATH);
-
-  const regularPath = findExistingFile([
-    regularConfigured,
-
-    path.resolve(process.cwd(), "assets", "fonts", "NotoSansJP-Regular.ttf"),
-
-    "C:/Windows/Fonts/MSMINCHO.TTF",
-  ]);
-
-  if (!regularPath) {
-    const error = new Error(
-      "Japanese PDF font was not found. Set PDF_FONT_PATH to a valid Japanese-capable .ttf file.",
-    );
-
-    error.statusCode = 500;
-
-    throw error;
-  }
-
-  const boldPath =
-    findExistingFile([
-      boldConfigured,
-
-      path.resolve(process.cwd(), "assets", "fonts", "NotoSansJP-Bold.ttf"),
-    ]) || regularPath;
-
-  try {
-    doc.registerFont(FONT_REGULAR, regularPath);
-
-    doc.registerFont(FONT_BOLD, boldPath);
-
-    doc.font(FONT_REGULAR);
-  } catch (error) {
-    console.error("JAPANESE FONT LOAD ERROR:", {
-      regularPath,
-      boldPath,
-      message: error.message,
-    });
-
-    const fontError = new Error("Japanese PDF font could not be loaded.");
-
-    fontError.statusCode = 500;
-
-    throw fontError;
-  }
-};
 
 const setFont = (doc, { bold = false, size = 9, color = COLORS.ink } = {}) => {
   doc
@@ -377,8 +320,6 @@ const resolveImagePath = (imagePath) => {
 
   const raw = String(imagePath).trim();
 
-  // Remote image handling can be added later
-  // if uploads move to Cloudinary/S3/etc.
   if (raw.startsWith("http://") || raw.startsWith("https://")) {
     return null;
   }
@@ -544,58 +485,6 @@ const drawBodyText = (
 };
 
 // =================================================
-// SMALL LABEL/VALUE
-// =================================================
-
-const drawLabelValueLine = (doc, label, value) => {
-  ensureSpace(doc, 26);
-
-  const x = doc.page.margins.left;
-
-  const width = contentWidth(doc);
-
-  const labelWidth = 90;
-
-  const y = doc.y;
-
-  const valueText = safeText(value);
-
-  const valueHeight = measureTextHeight(
-    doc,
-    valueText,
-    width - labelWidth - 12,
-    {
-      size: 9,
-    },
-  );
-
-  const rowHeight = Math.max(25, valueHeight + 10);
-
-  drawCell({
-    doc,
-    x,
-    y,
-    width: labelWidth,
-    height: rowHeight,
-    text: label,
-    fill: COLORS.soft,
-    bold: true,
-    align: "center",
-  });
-
-  drawCell({
-    doc,
-    x: x + labelWidth,
-    y,
-    width: width - labelWidth,
-    height: rowHeight,
-    text: valueText,
-  });
-
-  doc.y = y + rowHeight;
-};
-
-// =================================================
 // DOCUMENT TITLE
 // =================================================
 
@@ -692,6 +581,7 @@ const drawPersonalInformation = (doc, client, profile) => {
         cover: [PHOTO_WIDTH - 4, PHOTO_HEIGHT - 4],
 
         align: "center",
+
         valign: "center",
       });
     } catch (error) {
@@ -729,20 +619,31 @@ const drawPersonalInformation = (doc, client, profile) => {
       doc,
       x,
       y,
+
       width: labelWidth,
+
       height,
+
       text: label,
+
       fill: COLORS.soft,
+
       bold: true,
+
       align: "center",
     });
 
     drawCell({
       doc,
+
       x: x + labelWidth,
+
       y,
+
       width: valueWidth,
+
       height,
+
       text: value,
     });
 
@@ -766,41 +667,65 @@ const drawPersonalInformation = (doc, client, profile) => {
       doc,
       x,
       y,
+
       width: labelWidth,
+
       height,
+
       text: label1,
+
       fill: COLORS.soft,
+
       bold: true,
+
       align: "center",
     });
 
     drawCell({
       doc,
+
       x: x + labelWidth,
+
       y,
+
       width: valueWidth,
+
       height,
+
       text: value1,
     });
 
     drawCell({
       doc,
+
       x: x + half,
+
       y,
+
       width: labelWidth,
+
       height,
+
       text: label2,
+
       fill: COLORS.soft,
+
       bold: true,
+
       align: "center",
     });
 
     drawCell({
       doc,
+
       x: x + half + labelWidth,
+
       y,
+
       width: valueWidth,
+
       height,
+
       text: value2,
     });
 
@@ -817,25 +742,31 @@ const drawPersonalInformation = (doc, client, profile) => {
 
   splitRow(
     "生年月日",
+
     formatJapaneseDate(profile?.dateOfBirth),
 
     "年齢",
+
     calculateAge(profile?.dateOfBirth),
   );
 
   splitRow(
     "性別",
+
     genderLabel(profile?.gender),
 
     "国籍",
+
     safeText(profile?.nationality),
   );
 
   splitRow(
     "在留資格",
+
     visaStatusLabel(client.currentVisaStatus),
 
     "在留期限",
+
     formatJapaneseDate(profile?.residenceExpiryDate),
   );
 
@@ -873,6 +804,7 @@ const buildTimelineRows = (profile) => {
 
   rows.push({
     type: "section",
+
     text: "学歴",
   });
 
@@ -885,7 +817,9 @@ const buildTimelineRows = (profile) => {
 
     const schoolText = [
       schoolName,
+
       major ? `（${major}）` : "",
+
       schoolType && !schoolName.includes(schoolType) ? ` ${schoolType}` : "",
     ]
       .filter(Boolean)
@@ -896,8 +830,11 @@ const buildTimelineRows = (profile) => {
 
       rows.push({
         type: "entry",
+
         year: date.year,
+
         month: date.month,
+
         text: `${schoolText || "学校"} 入学`,
       });
     }
@@ -909,15 +846,21 @@ const buildTimelineRows = (profile) => {
 
       rows.push({
         type: "entry",
+
         year: date.year,
+
         month: date.month,
+
         text: `${schoolText || "学校"} ${graduationStatus || "卒業"}`,
       });
     } else if (item.graduationStatus === "currentlyEnrolled") {
       rows.push({
         type: "entry",
+
         year: "",
+
         month: "",
+
         text: `${schoolText || "学校"} 在学中`,
       });
     }
@@ -929,6 +872,7 @@ const buildTimelineRows = (profile) => {
 
   rows.push({
     type: "section",
+
     text: "職歴",
   });
 
@@ -947,16 +891,22 @@ const buildTimelineRows = (profile) => {
 
     rows.push({
       type: "entry",
+
       year: start.year,
+
       month: start.month,
+
       text: `${companyName} 入社${extra ? `（${extra}）` : ""}`,
     });
 
     if (item.isCurrent) {
       rows.push({
         type: "entry",
+
         year: "",
+
         month: "",
+
         text: `${companyName} 現在に至る`,
       });
     } else if (item.endDate) {
@@ -964,8 +914,11 @@ const buildTimelineRows = (profile) => {
 
       rows.push({
         type: "entry",
+
         year: end.year,
+
         month: end.month,
+
         text: `${companyName} 退社`,
       });
     }
@@ -973,6 +926,7 @@ const buildTimelineRows = (profile) => {
 
   rows.push({
     type: "end",
+
     text: "以上",
   });
 
@@ -999,35 +953,57 @@ const drawTimelineTable = (doc, rows) => {
       doc,
       x,
       y,
+
       width: yearWidth,
+
       height,
+
       text: "年",
+
       fill: COLORS.soft,
+
       bold: true,
+
       align: "center",
     });
 
     drawCell({
       doc,
+
       x: x + yearWidth,
+
       y,
+
       width: monthWidth,
+
       height,
+
       text: "月",
+
       fill: COLORS.soft,
+
       bold: true,
+
       align: "center",
     });
 
     drawCell({
       doc,
+
       x: x + yearWidth + monthWidth,
+
       y,
+
       width: textWidth,
+
       height,
+
       text: "学歴・職歴",
+
       fill: COLORS.soft,
+
       bold: true,
+
       align: "center",
     });
 
@@ -1038,9 +1014,9 @@ const drawTimelineTable = (doc, rows) => {
 
   for (const row of rows) {
     if (row.type === "section") {
-      ensureSpace(doc, 26);
+      const pageChanged = ensureSpace(doc, 26);
 
-      if (doc.y === doc.page.margins.top) {
+      if (pageChanged) {
         drawHeader();
       }
 
@@ -1050,11 +1026,17 @@ const drawTimelineTable = (doc, rows) => {
         doc,
         x,
         y,
+
         width: totalWidth,
+
         height: 24,
+
         text: row.text,
+
         fill: COLORS.soft,
+
         bold: true,
+
         align: "center",
       });
 
@@ -1064,9 +1046,9 @@ const drawTimelineTable = (doc, rows) => {
     }
 
     if (row.type === "end") {
-      ensureSpace(doc, 26);
+      const pageChanged = ensureSpace(doc, 26);
 
-      if (doc.y === doc.page.margins.top) {
+      if (pageChanged) {
         drawHeader();
       }
 
@@ -1076,9 +1058,13 @@ const drawTimelineTable = (doc, rows) => {
         doc,
         x,
         y,
+
         width: totalWidth,
+
         height: 24,
+
         text: row.text,
+
         align: "right",
       });
 
@@ -1105,28 +1091,43 @@ const drawTimelineTable = (doc, rows) => {
       doc,
       x,
       y,
+
       width: yearWidth,
+
       height: rowHeight,
+
       text: row.year,
+
       align: "center",
     });
 
     drawCell({
       doc,
+
       x: x + yearWidth,
+
       y,
+
       width: monthWidth,
+
       height: rowHeight,
+
       text: row.month,
+
       align: "center",
     });
 
     drawCell({
       doc,
+
       x: x + yearWidth + monthWidth,
+
       y,
+
       width: textWidth,
+
       height: rowHeight,
+
       text: row.text,
     });
 
@@ -1146,6 +1147,7 @@ const buildQualificationRows = (profile) => {
   if (profile?.japaneseLanguageLevel) {
     rows.push({
       date: "",
+
       text: `日本語能力 ${japaneseLevelLabel(profile.japaneseLanguageLevel)}`,
     });
   }
@@ -1171,6 +1173,7 @@ const buildQualificationRows = (profile) => {
   if (rows.length === 0) {
     rows.push({
       date: "",
+
       text: "特になし",
     });
   }
@@ -1204,18 +1207,27 @@ const drawQualificationTable = (doc, profile) => {
       doc,
       x,
       y,
+
       width: dateWidth,
+
       height,
+
       text: row.date,
+
       align: "center",
     });
 
     drawCell({
       doc,
+
       x: x + dateWidth,
+
       y,
+
       width: textWidth,
+
       height,
+
       text: row.text,
     });
 
@@ -1325,6 +1337,7 @@ const drawBulletList = (doc, values) => {
 
     doc.text(`・${item}`, {
       width: contentWidth(doc),
+
       lineGap: 2,
     });
 
@@ -1371,6 +1384,7 @@ const drawEmploymentBlock = (doc, item, index) => {
 
   setFont(doc, {
     bold: true,
+
     size: 10,
   });
 
@@ -1382,10 +1396,19 @@ const drawEmploymentBlock = (doc, item, index) => {
     size: 8.5,
   });
 
-  doc.text(dateRange || "-", x + width * 0.63, y + 8, {
-    width: width * 0.34,
-    align: "right",
-  });
+  doc.text(
+    dateRange || "-",
+
+    x + width * 0.63,
+
+    y + 8,
+
+    {
+      width: width * 0.34,
+
+      align: "right",
+    },
+  );
 
   doc.y = y + 37;
 
@@ -1406,6 +1429,7 @@ const drawEmploymentBlock = (doc, item, index) => {
   if (meta.length > 0) {
     setFont(doc, {
       size: 8.5,
+
       color: COLORS.muted,
     });
 
@@ -1424,6 +1448,7 @@ const drawEmploymentBlock = (doc, item, index) => {
   if (hasText(item.responsibilities)) {
     setFont(doc, {
       bold: true,
+
       size: 9,
     });
 
@@ -1450,6 +1475,7 @@ const drawEmploymentBlock = (doc, item, index) => {
   if (hasText(item.achievements)) {
     setFont(doc, {
       bold: true,
+
       size: 9,
     });
 
@@ -1472,6 +1498,7 @@ const drawEmploymentBlock = (doc, item, index) => {
   if (!hasText(item.responsibilities) && !hasText(item.achievements)) {
     setFont(doc, {
       size: 9,
+
       color: COLORS.muted,
     });
 
@@ -1518,12 +1545,10 @@ const drawCareerQualifications = (doc, profile) => {
 };
 
 // =================================================
-// CAREER HISTORY
+// CAREER CONTENT
 // =================================================
 
-const drawCareerHistory = (doc, client, profile) => {
-  addNewPage(doc);
-
+const drawCareerContent = (doc, client, profile) => {
   drawDocumentTitle(doc, "職 務 経 歴 書", {
     name: client.fullName,
 
@@ -1584,6 +1609,16 @@ const drawCareerHistory = (doc, client, profile) => {
 };
 
 // =================================================
+// CAREER HISTORY
+// =================================================
+
+const drawCareerHistory = (doc, client, profile) => {
+  addNewPage(doc);
+
+  drawCareerContent(doc, client, profile);
+};
+
+// =================================================
 // PAGE NUMBERS
 // =================================================
 
@@ -1595,17 +1630,23 @@ const addPageNumbers = (doc) => {
 
     setFont(doc, {
       size: 7.5,
+
       color: COLORS.muted,
     });
 
     doc.text(
       `${index + 1} / ${range.count}`,
+
       doc.page.margins.left,
+
       doc.page.height - 27,
+
       {
         width: contentWidth(doc),
 
         align: "center",
+
+        lineBreak: false,
       },
     );
   }
@@ -1648,7 +1689,18 @@ const buildJapaneseCvPdf = ({ client, profile, type = "combined" }) => {
     },
   });
 
-  registerJapaneseFonts(doc);
+  // =================================================
+  // PORTABLE JAPANESE FONTS
+  //
+  // config/pdfFonts.js resolves:
+  //
+  // assets/fonts/Japanese-Regular.ttf
+  // assets/fonts/Japanese-Bold.ttf
+  //
+  // No dependency on C:/Windows/Fonts
+  // =================================================
+
+  registerPdfFonts(doc);
 
   // =================================================
   // DOCUMENT
@@ -1659,44 +1711,7 @@ const buildJapaneseCvPdf = ({ client, profile, type = "combined" }) => {
   }
 
   if (selectedType === "career") {
-    // Career-only document uses the first page.
-    drawDocumentTitle(doc, "職 務 経 歴 書", {
-      name: client.fullName,
-
-      showName: true,
-    });
-
-    drawCareerSectionTitle(doc, "■ 職務要約");
-
-    drawBodyText(doc, profile?.careerSummary, {
-      emptyText: "職務要約は未登録です。",
-    });
-
-    drawCareerSectionTitle(doc, "■ 職務経歴");
-
-    const employment = profile?.employmentHistory || [];
-
-    if (employment.length === 0) {
-      drawBodyText(doc, "職務経歴は未登録です。");
-    } else {
-      employment.forEach((item, index) => {
-        drawEmploymentBlock(doc, item, index);
-      });
-    }
-
-    drawCareerSectionTitle(doc, "■ 活かせる経験・スキル");
-
-    drawBulletList(doc, profile?.skills || []);
-
-    drawCareerSectionTitle(doc, "■ 資格・語学");
-
-    drawCareerQualifications(doc, profile);
-
-    drawCareerSectionTitle(doc, "■ 自己PR");
-
-    drawBodyText(doc, profile?.selfPR, {
-      emptyText: "自己PRは未登録です。",
-    });
+    drawCareerContent(doc, client, profile);
   }
 
   if (selectedType === "combined") {
