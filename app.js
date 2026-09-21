@@ -9,6 +9,7 @@ if (process.env.NODE_ENV !== "production") {
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const path = require("path");
 
 const authRoutes = require("./routes/authRoutes");
 const staffRoutes = require("./routes/staffRoutes");
@@ -66,6 +67,15 @@ app.use(
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// =================================================
+// STATIC UPLOADS
+// =================================================
+
+app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "uploads")),
+);
 
 // =================================================
 // ROUTES
