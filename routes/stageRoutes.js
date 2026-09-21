@@ -1,34 +1,27 @@
 const express = require("express");
+
 const router = express.Router();
-const {
-  getStages,
-  createStage,
-  updateStage,
-  updateStageStatus,
-} = require("../controllers/stageController");
+
+const { getStages, createStage } = require("../controllers/stageController");
+
 const { verifyToken, authorize } = require("../middleware/authMiddleware");
-// =================================================
-// AUTH
-// =================================================
+
 router.use(verifyToken);
+
 // =================================================
-// GET ACTIVE STAGES
-// ADMIN + STAFF
+// GET STAGES
+//
+// Super Admin + Staff can read Stage Master.
 // =================================================
+
 router.get("/", authorize("superadmin", "staff"), getStages);
+
 // =================================================
 // CREATE STAGE
-// SUPERADMIN
+//
+// Only Super Admin can modify Stage Master.
 // =================================================
-router.post("/", authorize("superadmin", "staff"), createStage);
-// =================================================
-// UPDATE STAGE
-// SUPERADMIN
-// =================================================
-router.patch("/:stageId", authorize("superadmin"), updateStage);
-// =================================================
-// ENABLE / DISABLE STAGE
-// SUPERADMIN
-// =================================================
-router.patch("/:stageId/status", authorize("superadmin"), updateStageStatus);
+
+router.post("/", authorize("superadmin"), createStage);
+
 module.exports = router;
