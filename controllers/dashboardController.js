@@ -4,8 +4,78 @@ const Payment = require("../model/paymentSchema");
 const StaffTarget = require("../model/staffTargetSchema");
 const ClientStage = require("../model/clientStageSchema");
 
+const ProfileModule = require("../model/profileSchema");
+const Profile = ProfileModule.Profile || ProfileModule;
+
 // =================================================
-// HELPERS
+// CONSTANTS
+// =================================================
+
+const VISA_STATUSES = [
+  "student",
+  "dependent",
+  "designatedActivitiesJobHunting",
+  "designatedActivities",
+  "engineerHumanitiesInternationalServices",
+  "specifiedSkilledWorker1",
+  "specifiedSkilledWorker2",
+  "skilledLabor",
+  "technicalInternTraining",
+  "intra-companyTransferee",
+  "nursingCare",
+  "highlySkilledProfessional",
+  "businessManager",
+  "permanentResident",
+  "spouseChildOfJapaneseNational",
+  "spouseChildOfPermanentResident",
+  "longTermResident",
+  "other",
+];
+
+const PREFER_CATEGORIES = [
+  "newJob",
+  "jobChange",
+  "dependentVisaRenewal",
+  "visaServiceOnlyRenewal",
+  "visaServiceOnlyChange",
+  "otherVisaService",
+];
+
+const PAYMENT_STATUSES = ["Completed", "Cancelled", "Refunded"];
+
+const PAYMENT_METHODS = [
+  "Cash",
+  "Bank Transfer",
+  "Online Payment",
+  "Cheque",
+  "Other",
+];
+
+// =================================================
+// BASIC HELPERS
+// =================================================
+
+const normalizeQueryValue = (value) => {
+  return String(value || "").trim();
+};
+
+const escapeRegex = (value) => {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+};
+
+const exactRegex = (value) => ({
+  $regex: `^${escapeRegex(value)}$`,
+  $options: "i",
+});
+
+const normalizeStaffId = (value) => {
+  const staffId = normalizeQueryValue(value);
+
+  return staffId ? staffId.toUpperCase() : "";
+};
+
+// =================================================
+// MONTH
 // =================================================
 
 const isValidMonth = (value) => {
@@ -39,23 +109,303 @@ const getJapanMonthRange = (targetMonth) => {
 
   const nextYear = month === 12 ? year + 1 : year;
   const nextMonth = month === 12 ? 1 : month + 1;
-  const paddedNextMonth = String(nextMonth).padStart(2, "0");
 
   return {
     start: new Date(`${targetMonth}-01T00:00:00+09:00`),
-    end: new Date(`${nextYear}-${paddedNextMonth}-01T00:00:00+09:00`),
+    end: new Date(
+      `${nextYear}-${String(nextMonth).padStart(2, "0")}-01T00:00:00+09:00`,
+    ),
   };
 };
 
-const getStageNameMap = async () => {
-  const stages = await ClientStage.find({}).select("key name").lean();
+// =================================================
+// PAGINATION
+// =================================================
 
-  return new Map(stages.map((stage) => [stage.key, stage.name]));
+const parsePagination = (pageValue, limitValue, defaultLimit = 10) => {
+  const page = Math.max(Number.parseInt(pageValue, 10) || 1, 1);
+
+  const limit = Math.min(
+    Math.max(Number.parseInt(limitValue, 10) || defaultLimit, 1),
+    100,
+  );
+
+  return {
+    page,
+    limit,
+  };
 };
 
-const normalizeRecentPayment = (payment) => {
+const createPagination = ({ total, page, limit, count }) => {
+  const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
+
+  const currentPage = totalPages > 0 ? Math.min(page, totalPages) : 1;
+
+  const from = total === 0 ? null : (currentPage - 1) * limit + 1;
+
+  const to = total === 0 ? null : Math.min(from + count - 1, total);
+
+  return {
+    currentPage,
+    totalPages,
+    perPage: limit,
+    total,
+    from,
+    to,
+    hasNextPage: totalPages > 0 && currentPage < totalPages,
+    hasPreviousPage: totalPages > 0 && currentPage > 1,
+  };
+};
+
+// =================================================
+// QUERY VALIDATION
+// =================================================
+
+const validateAdminDashboardQuery = (query) => {
+  const currentVisaStatus = normalizeQueryValue(query.currentVisaStatus);
+
+  if (currentVisaStatus && !VISA_STATUSES.includes(currentVisaStatus)) {
+    return "Invalid currentVisaStatus.";
+  }
+
+  const preferCategory = normalizeQueryValue(query.preferCategory);
+
+  if (preferCategory && !PREFER_CATEGORIES.includes(preferCategory)) {
+    return "Invalid preferCategory.";
+  }
+
+  const paymentStatus = normalizeQueryValue(query.paymentStatus);
+
+  if (paymentStatus && !PAYMENT_STATUSES.includes(paymentStatus)) {
+    return "Invalid paymentStatus.";
+  }
+
+  const paymentMethod = normalizeQueryValue(query.paymentMethod);
+
+  if (paymentMethod && !PAYMENT_METHODS.includes(paymentMethod)) {
+    return "Invalid paymentMethod.";
+  }
+
+  return null;
+};
+
+// =================================================
+// CLIENT FILTERS
+// =================================================
+
+const hasClientFilters = (query) => {
+  return Boolean(
+    normalizeQueryValue(query.free_word) ||
+    normalizeQueryValue(query.staffId) ||
+    normalizeQueryValue(query.currentStage) ||
+    normalizeQueryValue(query.currentVisaStatus) ||
+    normalizeQueryValue(query.preferCategory) ||
+    normalizeQueryValue(query.nationality) ||
+    normalizeQueryValue(query.japaneseLevel),
+  );
+};
+
+const buildClientDashboardPipeline = (query) => {
+  const clientMatch = {};
+
+  const staffId = normalizeStaffId(query.staffId);
+
+  const currentStage = normalizeQueryValue(query.currentStage);
+
+  const currentVisaStatus = normalizeQueryValue(query.currentVisaStatus);
+
+  const preferCategory = normalizeQueryValue(query.preferCategory);
+
+  if (staffId) {
+    clientMatch.assignedStaff = staffId;
+  }
+
+  if (currentStage) {
+    clientMatch.currentStage = currentStage;
+  }
+
+  if (currentVisaStatus) {
+    clientMatch.currentVisaStatus = currentVisaStatus;
+  }
+
+  if (preferCategory) {
+    clientMatch.preferCategory = preferCategory;
+  }
+
+  const pipeline = [
+    {
+      $match: clientMatch,
+    },
+    {
+      $lookup: {
+        from: Profile.collection.name,
+        localField: "clientId",
+        foreignField: "clientId",
+        as: "profile",
+      },
+    },
+    {
+      $unwind: {
+        path: "$profile",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
+      $lookup: {
+        from: Staff.collection.name,
+        localField: "assignedStaff",
+        foreignField: "staffId",
+        as: "staffDetails",
+      },
+    },
+    {
+      $unwind: {
+        path: "$staffDetails",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
+      $lookup: {
+        from: ClientStage.collection.name,
+        localField: "currentStage",
+        foreignField: "key",
+        as: "stageDetails",
+      },
+    },
+    {
+      $unwind: {
+        path: "$stageDetails",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+  ];
+
+  const nationality = normalizeQueryValue(query.nationality);
+
+  if (nationality) {
+    pipeline.push({
+      $match: {
+        "profile.nationality": exactRegex(nationality),
+      },
+    });
+  }
+
+  const japaneseLevel = normalizeQueryValue(query.japaneseLevel);
+
+  if (japaneseLevel) {
+    pipeline.push({
+      $match: {
+        "profile.japaneseLanguageLevel": exactRegex(japaneseLevel),
+      },
+    });
+  }
+
+  const freeWord = normalizeQueryValue(query.free_word);
+
+  if (freeWord) {
+    const searchRegex = {
+      $regex: escapeRegex(freeWord),
+      $options: "i",
+    };
+
+    pipeline.push({
+      $match: {
+        $or: [
+          {
+            clientId: searchRegex,
+          },
+          {
+            fullName: searchRegex,
+          },
+          {
+            phone: searchRegex,
+          },
+          {
+            assignedStaff: searchRegex,
+          },
+          {
+            currentVisaStatus: searchRegex,
+          },
+          {
+            preferCategory: searchRegex,
+          },
+          {
+            clientStatus: searchRegex,
+          },
+          {
+            "profile.furigana": searchRegex,
+          },
+          {
+            "profile.email": searchRegex,
+          },
+          {
+            "profile.nationality": searchRegex,
+          },
+          {
+            "profile.japaneseLanguageLevel": searchRegex,
+          },
+          {
+            "profile.prefecture": searchRegex,
+          },
+          {
+            "profile.address": searchRegex,
+          },
+          {
+            "staffDetails.name": searchRegex,
+          },
+          {
+            "staffDetails.email": searchRegex,
+          },
+          {
+            "stageDetails.name": searchRegex,
+          },
+        ],
+      },
+    });
+  }
+
+  return pipeline;
+};
+
+// =================================================
+// PAYMENT HELPERS
+// =================================================
+
+const buildPaymentScope = (query, filteredClientIds, useClientIds) => {
+  const match = {};
+
+  const staffId = normalizeStaffId(query.staffId);
+
+  const paymentMethod = normalizeQueryValue(query.paymentMethod);
+
+  const paymentStage = normalizeQueryValue(query.paymentStage);
+
+  if (staffId) {
+    match.creditedStaff = staffId;
+  }
+
+  if (paymentMethod) {
+    match.paymentMethod = paymentMethod;
+  }
+
+  if (paymentStage) {
+    match.stageKey = paymentStage;
+  }
+
+  if (useClientIds) {
+    match.clientId = {
+      $in: filteredClientIds,
+    };
+  }
+
+  return match;
+};
+
+const normalizeDashboardPayment = (payment, clientNameMap = new Map()) => {
   return {
     ...payment,
+
+    clientName: clientNameMap.get(payment.clientId) || "",
 
     stageKey: payment.stageKey || "",
 
@@ -73,16 +423,42 @@ const normalizeRecentPayment = (payment) => {
 };
 
 // =================================================
+// STAGE NAME MAP
+// =================================================
+
+const getStageNameMap = async () => {
+  const stages = await ClientStage.find({}).select("key name").lean();
+
+  return new Map(stages.map((stage) => [stage.key, stage.name]));
+};
+
+// =================================================
 // ADMIN DASHBOARD
 //
-// GET /api/dashboard/admin?month=2026-09
+// GET /api/dashboard/admin
+//
+// Query:
+// month
+// free_word
+// staffId
+// currentStage
+// currentVisaStatus
+// preferCategory
+// nationality
+// japaneseLevel
+// paymentStatus
+// paymentMethod
+// paymentStage
+// rankingPage
+// rankingLimit
+// paymentPage
+// paymentLimit
 // =================================================
 
 exports.getAdminDashboard = async (req, res) => {
   try {
-    const selectedMonth = String(
-      req.query.month || getCurrentJapanMonth(),
-    ).trim();
+    const selectedMonth =
+      normalizeQueryValue(req.query.month) || getCurrentJapanMonth();
 
     if (!isValidMonth(selectedMonth)) {
       return res.status(400).json({
@@ -91,56 +467,146 @@ exports.getAdminDashboard = async (req, res) => {
       });
     }
 
+    const queryError = validateAdminDashboardQuery(req.query);
+
+    if (queryError) {
+      return res.status(400).json({
+        success: false,
+        message: queryError,
+      });
+    }
+
     const { start, end } = getJapanMonthRange(selectedMonth);
 
-    // =================================================
-    // BASIC COUNTS
-    // =================================================
+    const rankingPaginationInput = parsePagination(
+      req.query.rankingPage,
+      req.query.rankingLimit,
+      10,
+    );
 
-    const [totalClients, totalStaff, activeStaff, stageNameMap] =
-      await Promise.all([
-        Client.countDocuments(),
-
-        Staff.countDocuments(),
-
-        Staff.countDocuments({
-          isActive: true,
-        }),
-
-        getStageNameMap(),
-      ]);
+    const paymentPaginationInput = parsePagination(
+      req.query.paymentPage,
+      req.query.paymentLimit,
+      10,
+    );
 
     // =================================================
-    // CLIENT STAGE BREAKDOWN
+    // FILTER OPTIONS + BASIC STAFF COUNTS
     // =================================================
 
-    const stageBreakdownRaw = await Client.aggregate([
+    const [
+      totalStaff,
+      activeStaff,
+      staffDocuments,
+      stageDocuments,
+      nationalitiesRaw,
+      japaneseLevelsRaw,
+    ] = await Promise.all([
+      Staff.countDocuments(),
+
+      Staff.countDocuments({
+        isActive: true,
+      }),
+
+      Staff.find({})
+        .select("_id staffId name email isActive")
+        .sort({
+          name: 1,
+        })
+        .lean(),
+
+      ClientStage.find({})
+        .select("key name amount isActive displayOrder")
+        .sort({
+          displayOrder: 1,
+          name: 1,
+        })
+        .lean(),
+
+      Profile.distinct("nationality"),
+
+      Profile.distinct("japaneseLanguageLevel"),
+    ]);
+
+    const nationalities = nationalitiesRaw
+      .map((value) => normalizeQueryValue(value))
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+
+    const japaneseLevels = japaneseLevelsRaw
+      .map((value) => normalizeQueryValue(value))
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+
+    const stageNameMap = new Map(
+      stageDocuments.map((stage) => [stage.key, stage.name]),
+    );
+
+    // =================================================
+    // FILTERED CLIENTS
+    // =================================================
+
+    const clientPipeline = buildClientDashboardPipeline(req.query);
+
+    const clientAggregation = await Client.aggregate([
+      ...clientPipeline,
       {
-        $group: {
-          _id: {
-            stage: {
-              $ifNull: ["$currentStage", ""],
+        $facet: {
+          ids: [
+            {
+              $project: {
+                _id: 0,
+                clientId: 1,
+              },
+            },
+          ],
+
+          total: [
+            {
+              $count: "count",
+            },
+          ],
+
+          stages: [
+            {
+              $group: {
+                _id: {
+                  stage: {
+                    $ifNull: ["$currentStage", ""],
+                  },
+
+                  clientStatus: {
+                    $ifNull: ["$clientStatus", "Registration Pending"],
+                  },
+                },
+
+                count: {
+                  $sum: 1,
+                },
+              },
             },
 
-            clientStatus: {
-              $ifNull: ["$clientStatus", "Registration Pending"],
+            {
+              $sort: {
+                count: -1,
+              },
             },
-          },
-
-          count: {
-            $sum: 1,
-          },
-        },
-      },
-
-      {
-        $sort: {
-          count: -1,
+          ],
         },
       },
     ]);
 
-    const stageBreakdown = stageBreakdownRaw.map((item) => {
+    const clientResult = clientAggregation?.[0] || {};
+
+    const filteredClientIds = (clientResult.ids || [])
+      .map((item) => item.clientId)
+      .filter(Boolean);
+
+    const totalClients = Number(clientResult.total?.[0]?.count || 0);
+
+    const clientFilterActive = hasClientFilters(req.query);
+
+    const stageBreakdown = (clientResult.stages || []).map((item) => {
       const stageKey = item._id?.stage || "";
 
       const fallbackName =
@@ -148,108 +614,153 @@ exports.getAdminDashboard = async (req, res) => {
 
       return {
         stage: stageKey,
+
         stageName: stageNameMap.get(stageKey) || fallbackName,
+
         count: item.count,
       };
     });
 
     // =================================================
-    // ALL-TIME COMPLETED PAYMENTS
-    //
-    // No ClientFee / outstanding calculation.
+    // COMPLETED COLLECTION SCOPE
     // =================================================
 
-    const allTimePaymentResult = await Payment.aggregate([
-      {
-        $match: {
-          paymentStatus: "Completed",
-        },
+    const collectionScope = buildPaymentScope(
+      req.query,
+      filteredClientIds,
+      clientFilterActive,
+    );
+
+    const allTimeCollectionMatch = {
+      ...collectionScope,
+      paymentStatus: "Completed",
+    };
+
+    const monthlyCollectionMatch = {
+      ...allTimeCollectionMatch,
+
+      paymentDate: {
+        $gte: start,
+
+        $lt: end,
       },
+    };
 
-      {
-        $group: {
-          _id: null,
+    // =================================================
+    // PAYMENT TABLE SCOPE
+    // =================================================
 
-          totalCollected: {
-            $sum: "$amountPaid",
-          },
+    const paymentTableMatch = {
+      ...buildPaymentScope(req.query, filteredClientIds, clientFilterActive),
 
-          paymentCount: {
-            $sum: 1,
-          },
+      paymentDate: {
+        $gte: start,
 
-          clientIds: {
-            $addToSet: "$clientId",
+        $lt: end,
+      },
+    };
+
+    const paymentStatus = normalizeQueryValue(req.query.paymentStatus);
+
+    if (paymentStatus) {
+      paymentTableMatch.paymentStatus = paymentStatus;
+    }
+
+    // =================================================
+    // PAYMENT COLLECTION TOTALS
+    // =================================================
+
+    const [allTimePaymentResult, monthlyPaymentResult] = await Promise.all([
+      Payment.aggregate([
+        {
+          $match: allTimeCollectionMatch,
+        },
+
+        {
+          $group: {
+            _id: null,
+
+            totalCollected: {
+              $sum: "$amountPaid",
+            },
+
+            paymentCount: {
+              $sum: 1,
+            },
+
+            clientIds: {
+              $addToSet: "$clientId",
+            },
           },
         },
-      },
+      ]),
+
+      Payment.aggregate([
+        {
+          $match: monthlyCollectionMatch,
+        },
+
+        {
+          $group: {
+            _id: null,
+
+            totalCollected: {
+              $sum: "$amountPaid",
+            },
+
+            paymentCount: {
+              $sum: 1,
+            },
+
+            clientIds: {
+              $addToSet: "$clientId",
+            },
+          },
+        },
+      ]),
     ]);
 
     const totalCollectedAllTime = Number(
-      allTimePaymentResult[0]?.totalCollected || 0,
+      allTimePaymentResult?.[0]?.totalCollected || 0,
     );
 
     const totalCompletedPayments = Number(
-      allTimePaymentResult[0]?.paymentCount || 0,
+      allTimePaymentResult?.[0]?.paymentCount || 0,
     );
 
-    const totalPayingClients = allTimePaymentResult[0]?.clientIds?.length || 0;
-
-    // =================================================
-    // SELECTED MONTH PAYMENTS
-    // =================================================
-
-    const monthlyPaymentResult = await Payment.aggregate([
-      {
-        $match: {
-          paymentStatus: "Completed",
-
-          paymentDate: {
-            $gte: start,
-            $lt: end,
-          },
-        },
-      },
-
-      {
-        $group: {
-          _id: null,
-
-          totalCollected: {
-            $sum: "$amountPaid",
-          },
-
-          paymentCount: {
-            $sum: 1,
-          },
-
-          clientIds: {
-            $addToSet: "$clientId",
-          },
-        },
-      },
-    ]);
+    const totalPayingClients =
+      allTimePaymentResult?.[0]?.clientIds?.length || 0;
 
     const monthlyCollected = Number(
-      monthlyPaymentResult[0]?.totalCollected || 0,
+      monthlyPaymentResult?.[0]?.totalCollected || 0,
     );
 
     const monthlyPaymentCount = Number(
-      monthlyPaymentResult[0]?.paymentCount || 0,
+      monthlyPaymentResult?.[0]?.paymentCount || 0,
     );
 
-    const monthlyClientCount = monthlyPaymentResult[0]?.clientIds?.length || 0;
+    const monthlyClientCount =
+      monthlyPaymentResult?.[0]?.clientIds?.length || 0;
 
     // =================================================
-    // MONTHLY TARGETS
+    // TARGETS
     // =================================================
 
-    const monthlyTargets = await StaffTarget.find({
+    const staffId = normalizeStaffId(req.query.staffId);
+
+    const targetQuery = {
       targetMonth: selectedMonth,
-    }).lean();
+    };
+
+    if (staffId) {
+      targetQuery.staffId = staffId;
+    }
+
+    const monthlyTargets = await StaffTarget.find(targetQuery).lean();
 
     const totalTarget = monthlyTargets.reduce(
       (total, target) => total + Number(target.targetAmount || 0),
+
       0,
     );
 
@@ -259,19 +770,16 @@ exports.getAdminDashboard = async (req, res) => {
         : 0;
 
     // =================================================
-    // STAFF PAYMENT PERFORMANCE
+    // STAFF PERFORMANCE
     // =================================================
+
+    const staffPerformanceMatch = {
+      ...monthlyCollectionMatch,
+    };
 
     const staffPayments = await Payment.aggregate([
       {
-        $match: {
-          paymentStatus: "Completed",
-
-          paymentDate: {
-            $gte: start,
-            $lt: end,
-          },
-        },
+        $match: staffPerformanceMatch,
       },
 
       {
@@ -304,10 +812,9 @@ exports.getAdminDashboard = async (req, res) => {
       ]),
     );
 
-    const paymentPerformanceMap = new Map(
+    const performanceMap = new Map(
       staffPayments.map((item) => [
         item._id,
-
         {
           totalCollected: Number(item.totalCollected || 0),
 
@@ -318,18 +825,16 @@ exports.getAdminDashboard = async (req, res) => {
       ]),
     );
 
-    // =================================================
-    // ACTIVE STAFF RANKING
-    // =================================================
+    let rankingStaffList = staffDocuments.filter((staff) => staff.isActive);
 
-    const staffList = await Staff.find({
-      isActive: true,
-    })
-      .select("_id staffId name email")
-      .lean();
+    if (staffId) {
+      rankingStaffList = staffDocuments.filter(
+        (staff) => staff.staffId === staffId,
+      );
+    }
 
-    let rankings = staffList.map((staff) => {
-      const paymentData = paymentPerformanceMap.get(staff.staffId) || {
+    let allRankings = rankingStaffList.map((staff) => {
+      const paymentData = performanceMap.get(staff.staffId) || {
         totalCollected: 0,
         paymentCount: 0,
         clientCount: 0,
@@ -337,8 +842,6 @@ exports.getAdminDashboard = async (req, res) => {
 
       const targetAmount = targetMap.get(staff.staffId) || 0;
 
-      // This is TARGET remaining,
-      // not client outstanding.
       const remainingAmount = Math.max(
         targetAmount - paymentData.totalCollected,
         0,
@@ -386,28 +889,63 @@ exports.getAdminDashboard = async (req, res) => {
       };
     });
 
-    rankings.sort(
+    allRankings.sort(
       (a, b) =>
         b.totalCollected - a.totalCollected ||
-        b.achievementPercentage - a.achievementPercentage,
+        b.achievementPercentage - a.achievementPercentage ||
+        a.staffName.localeCompare(b.staffName),
     );
 
-    rankings = rankings.map((item, index) => ({
+    allRankings = allRankings.map((item, index) => ({
       rank: index + 1,
+
       ...item,
     }));
 
+    const rankingTotal = allRankings.length;
+
+    const rankingTotalPages =
+      rankingTotal > 0
+        ? Math.ceil(rankingTotal / rankingPaginationInput.limit)
+        : 0;
+
+    const rankingPage =
+      rankingTotalPages > 0
+        ? Math.min(rankingPaginationInput.page, rankingTotalPages)
+        : 1;
+
+    const rankingSkip = (rankingPage - 1) * rankingPaginationInput.limit;
+
+    const rankingItems = allRankings.slice(
+      rankingSkip,
+      rankingSkip + rankingPaginationInput.limit,
+    );
+
     // =================================================
-    // RECENT COMPLETED PAYMENTS
+    // PAYMENT TABLE PAGINATION
     // =================================================
 
-    const recentPaymentDocuments = await Payment.find({
-      paymentStatus: "Completed",
-    })
+    const paymentTotal = await Payment.countDocuments(paymentTableMatch);
+
+    const paymentTotalPages =
+      paymentTotal > 0
+        ? Math.ceil(paymentTotal / paymentPaginationInput.limit)
+        : 0;
+
+    const paymentPage =
+      paymentTotalPages > 0
+        ? Math.min(paymentPaginationInput.page, paymentTotalPages)
+        : 1;
+
+    const paymentSkip = (paymentPage - 1) * paymentPaginationInput.limit;
+
+    const paymentDocuments = await Payment.find(paymentTableMatch)
       .sort({
+        paymentDate: -1,
         createdAt: -1,
       })
-      .limit(8)
+      .skip(paymentSkip)
+      .limit(paymentPaginationInput.limit)
       .select(
         [
           "clientId",
@@ -426,7 +964,7 @@ exports.getAdminDashboard = async (req, res) => {
           "bankName",
           "createdAt",
 
-          // Legacy fallbacks.
+          // Legacy.
           "paymentName",
           "expectedAmount",
           "stageAtPayment",
@@ -434,35 +972,137 @@ exports.getAdminDashboard = async (req, res) => {
       )
       .lean();
 
-    const recentPayments = recentPaymentDocuments.map(normalizeRecentPayment);
+    const paymentClientIds = [
+      ...new Set(
+        paymentDocuments.map((payment) => payment.clientId).filter(Boolean),
+      ),
+    ];
+
+    const paymentClients =
+      paymentClientIds.length > 0
+        ? await Client.find({
+            clientId: {
+              $in: paymentClientIds,
+            },
+          })
+            .select("clientId fullName")
+            .lean()
+        : [];
+
+    const clientNameMap = new Map(
+      paymentClients.map((client) => [client.clientId, client.fullName]),
+    );
+
+    const payments = paymentDocuments.map((payment) =>
+      normalizeDashboardPayment(payment, clientNameMap),
+    );
+
+    // =================================================
+    // RESPONSE
+    // =================================================
 
     return res.status(200).json({
       success: true,
 
       selectedMonth,
 
+      filters: {
+        free_word: normalizeQueryValue(req.query.free_word),
+
+        staffId,
+
+        currentStage: normalizeQueryValue(req.query.currentStage),
+
+        currentVisaStatus: normalizeQueryValue(req.query.currentVisaStatus),
+
+        preferCategory: normalizeQueryValue(req.query.preferCategory),
+
+        nationality: normalizeQueryValue(req.query.nationality),
+
+        japaneseLevel: normalizeQueryValue(req.query.japaneseLevel),
+
+        paymentStatus,
+
+        paymentMethod: normalizeQueryValue(req.query.paymentMethod),
+
+        paymentStage: normalizeQueryValue(req.query.paymentStage),
+      },
+
+      filterOptions: {
+        staff: staffDocuments.map((staff) => ({
+          staffId: staff.staffId,
+
+          name: staff.name,
+
+          isActive: staff.isActive,
+        })),
+
+        stages: stageDocuments.map((stage) => ({
+          key: stage.key,
+
+          name: stage.name,
+
+          isActive: stage.isActive,
+        })),
+
+        nationalities,
+
+        japaneseLevels,
+      },
+
       overview: {
         totalClients,
+
         totalStaff,
+
         activeStaff,
 
         totalCollectedAllTime,
+
         totalCompletedPayments,
+
         totalPayingClients,
 
         monthlyCollected,
+
         monthlyPaymentCount,
+
         monthlyClientCount,
 
         totalTarget,
+
         targetAchievement,
       },
 
-      rankings,
+      rankings: {
+        data: rankingItems,
+
+        pagination: createPagination({
+          total: rankingTotal,
+
+          page: rankingPage,
+
+          limit: rankingPaginationInput.limit,
+
+          count: rankingItems.length,
+        }),
+      },
 
       stageBreakdown,
 
-      recentPayments,
+      payments: {
+        data: payments,
+
+        pagination: createPagination({
+          total: paymentTotal,
+
+          page: paymentPage,
+
+          limit: paymentPaginationInput.limit,
+
+          count: payments.length,
+        }),
+      },
     });
   } catch (error) {
     console.error("ADMIN DASHBOARD ERROR:", error);
@@ -478,6 +1118,7 @@ exports.getAdminDashboard = async (req, res) => {
 // =================================================
 // STAFF DASHBOARD
 //
+// Existing staff dashboard kept compatible.
 // GET /api/dashboard/staff?month=2026-09
 // =================================================
 
@@ -488,6 +1129,7 @@ exports.getStaffDashboard = async (req, res) => {
     if (!staffId) {
       return res.status(400).json({
         success: false,
+
         message: "Staff ID is missing from the authenticated account.",
       });
     }
@@ -499,6 +1141,7 @@ exports.getStaffDashboard = async (req, res) => {
     if (!isValidMonth(selectedMonth)) {
       return res.status(400).json({
         success: false,
+
         message: "Month must be in YYYY-MM format.",
       });
     }
@@ -518,6 +1161,7 @@ exports.getStaffDashboard = async (req, res) => {
     if (!staff) {
       return res.status(404).json({
         success: false,
+
         message: "Staff account not found.",
       });
     }
@@ -549,14 +1193,10 @@ exports.getStaffDashboard = async (req, res) => {
     const totalAssignedClients = assignedClients.length;
 
     // =================================================
-    // STAGE NAMES
+    // STAGES
     // =================================================
 
     const stageNameMap = await getStageNameMap();
-
-    // =================================================
-    // STAGE BREAKDOWN
-    // =================================================
 
     const stageMap = new Map();
 
@@ -576,7 +1216,9 @@ exports.getStaffDashboard = async (req, res) => {
       } else {
         stageMap.set(stageKey, {
           stage: stageKey,
+
           stageName,
+
           count: 1,
         });
       }
@@ -592,15 +1234,14 @@ exports.getStaffDashboard = async (req, res) => {
 
     const target = await StaffTarget.findOne({
       staffId,
+
       targetMonth: selectedMonth,
     }).lean();
 
     const targetAmount = Number(target?.targetAmount || 0);
 
     // =================================================
-    // MONTHLY COMPLETED PAYMENTS
-    //
-    // Performance follows creditedStaff snapshot.
+    // MONTHLY PERFORMANCE
     // =================================================
 
     const monthlyPerformanceResult = await Payment.aggregate([
@@ -612,6 +1253,7 @@ exports.getStaffDashboard = async (req, res) => {
 
           paymentDate: {
             $gte: start,
+
             $lt: end,
           },
         },
@@ -637,16 +1279,16 @@ exports.getStaffDashboard = async (req, res) => {
     ]);
 
     const totalCollected = Number(
-      monthlyPerformanceResult[0]?.totalCollected || 0,
+      monthlyPerformanceResult?.[0]?.totalCollected || 0,
     );
 
-    const paymentCount = Number(monthlyPerformanceResult[0]?.paymentCount || 0);
+    const paymentCount = Number(
+      monthlyPerformanceResult?.[0]?.paymentCount || 0,
+    );
 
     const payingClientCount =
-      monthlyPerformanceResult[0]?.clientIds?.length || 0;
+      monthlyPerformanceResult?.[0]?.clientIds?.length || 0;
 
-    // Staff target remaining.
-    // This is NOT client outstanding.
     const remainingAmount = Math.max(targetAmount - totalCollected, 0);
 
     const achievementPercentage =
@@ -667,7 +1309,7 @@ exports.getStaffDashboard = async (req, res) => {
     }
 
     // =================================================
-    // ALL-TIME STAFF COMPLETED COLLECTIONS
+    // ALL-TIME
     // =================================================
 
     const allTimeStaffResult = await Payment.aggregate([
@@ -698,17 +1340,19 @@ exports.getStaffDashboard = async (req, res) => {
       },
     ]);
 
-    const allTimeCollected = Number(allTimeStaffResult[0]?.totalCollected || 0);
+    const allTimeCollected = Number(
+      allTimeStaffResult?.[0]?.totalCollected || 0,
+    );
 
     const allTimePaymentCount = Number(
-      allTimeStaffResult[0]?.paymentCount || 0,
+      allTimeStaffResult?.[0]?.paymentCount || 0,
     );
 
     const allTimePayingClientCount =
-      allTimeStaffResult[0]?.clientIds?.length || 0;
+      allTimeStaffResult?.[0]?.clientIds?.length || 0;
 
     // =================================================
-    // RECENT COMPLETED PAYMENTS
+    // RECENT PAYMENTS
     // =================================================
 
     const recentPaymentDocuments = await Payment.find({
@@ -735,7 +1379,6 @@ exports.getStaffDashboard = async (req, res) => {
           "bankName",
           "createdAt",
 
-          // Legacy fallbacks.
           "paymentName",
           "expectedAmount",
           "stageAtPayment",
@@ -743,10 +1386,12 @@ exports.getStaffDashboard = async (req, res) => {
       )
       .lean();
 
-    const recentPayments = recentPaymentDocuments.map(normalizeRecentPayment);
+    const recentPayments = recentPaymentDocuments.map((payment) =>
+      normalizeDashboardPayment(payment),
+    );
 
     // =================================================
-    // RECENT ASSIGNED CLIENTS
+    // RECENT CLIENTS
     // =================================================
 
     const recentClients = assignedClients.slice(0, 8).map((client) => {
