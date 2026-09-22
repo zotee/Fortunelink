@@ -156,7 +156,7 @@ app.use((err, req, res, next) => {
 // SERVER
 // =================================================
 
-const PORT = process.env.PORT || 8001;
+const PORT = Number(process.env.PORT) || 8001;
 
 const startServer = async () => {
   try {
@@ -164,17 +164,22 @@ const startServer = async () => {
 
     console.log("Connected to MongoDB Atlas");
 
-    // Make sure Super Admin exists
+    // Ensure the initial superadmin exists.
     await createAdmin();
 
+    /*
+     * Ensure default stages exist and assign missing
+     * custom stage IDs such as S-2324.
+     */
     await seedDefaultClientStages();
 
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running successfully on port ${PORT}`);
+      console.log(
+        `Server running successfully on port ${PORT}`,
+      );
     });
   } catch (error) {
     console.error("Server startup failed:");
-
     console.error(error);
 
     process.exit(1);
