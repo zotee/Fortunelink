@@ -2,26 +2,93 @@ const express = require("express");
 
 const router = express.Router();
 
-const { getStages, createStage } = require("../controllers/stageController");
+const {
+  getStages,
+  getStageById,
+  createStage,
+  updateStage,
+  updateStageStatus,
+  deleteStage,
+} = require("../controllers/stageController");
 
-const { verifyToken, authorize } = require("../middleware/authMiddleware");
+const {
+  verifyToken,
+  authorize,
+} = require("../middleware/authMiddleware");
+
+// =================================================
+// AUTHENTICATION
+// =================================================
 
 router.use(verifyToken);
 
 // =================================================
-// GET STAGES
+// GET ALL STAGES
 //
-// Super Admin + Staff can read Stage Master.
+// Superadmin:
+// - Can get active stages.
+// - Can include inactive stages with ?includeInactive=true
+//
+// Staff:
+// - Can get active stages only.
 // =================================================
 
-router.get("/", authorize("superadmin", "staff"), getStages);
+router.get(
+  "/",
+  authorize("superadmin", "staff"),
+  getStages,
+);
+
+// =================================================
+// GET ONE STAGE
+// =================================================
+
+router.get(
+  "/:stageId",
+  authorize("superadmin", "staff"),
+  getStageById,
+);
 
 // =================================================
 // CREATE STAGE
-//
-// Only Super Admin can modify Stage Master.
 // =================================================
 
-router.post("/", authorize("superadmin"), createStage);
+router.post(
+  "/",
+  authorize("superadmin"),
+  createStage,
+);
+
+// =================================================
+// UPDATE STAGE STATUS
+//
+// Keep this route before /:stageId.
+// =================================================
+
+router.patch(
+  "/:stageId/status",
+  authorize("superadmin"),
+  updateStageStatus,
+);
+
+// =================================================
+// UPDATE STAGE
+// =================================================
+
+router.patch(
+  "/:stageId",
+  authorize("superadmin"),
+  updateStage,
+);
+
+// =================================================
+// DELETE STAGE
+// =================================================
+
+router.delete(
+  "/:stageId",
+  authorize("superadmin"),
+  deleteStage,
+);
 
 module.exports = router;
