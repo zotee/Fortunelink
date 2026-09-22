@@ -24,9 +24,18 @@ const createStageKey = (name) => {
         return lower;
       }
 
-      return lower.charAt(0).toUpperCase() + lower.slice(1);
+      return (
+        lower.charAt(0).toUpperCase() +
+        lower.slice(1)
+      );
     })
     .join("");
+};
+
+const normalizeStageId = (stageId) => {
+  return String(stageId || "")
+    .trim()
+    .toUpperCase();
 };
 
 const parseAmount = (value) => {
@@ -43,8 +52,24 @@ const parseAmount = (value) => {
   return amount;
 };
 
+const parseDisplayOrder = (value) => {
+  const displayOrder = Number(value);
+
+  if (
+    !Number.isInteger(displayOrder) ||
+    displayOrder < 1
+  ) {
+    return null;
+  }
+
+  return displayOrder;
+};
+
 const escapeRegex = (value) => {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return String(value).replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&",
+  );
 };
 
 const getActorId = (req) => {
@@ -59,6 +84,7 @@ const getActorId = (req) => {
 
 // =================================================
 // GET STAGES
+//
 // GET /api/stages
 // GET /api/stages?includeInactive=true
 // =================================================
@@ -69,7 +95,9 @@ exports.getStages = async (req, res) => {
 
     const includeInactive =
       req.user.role === "superadmin" &&
-      String(req.query.includeInactive || "").toLowerCase() === "true";
+      String(
+        req.query.includeInactive || "",
+      ).toLowerCase() === "true";
 
     if (!includeInactive) {
       filter.isActive = true;
@@ -92,15 +120,69 @@ exports.getStages = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to get stages.",
+      message:
+        error.message || "Failed to get stages.",
+    });
+  }
+};
+
+// =================================================
+// GET ONE STAGE
+//
+// GET /api/stages/:stageId
+// =================================================
+
+exports.getStageById = async (req, res) => {
+  try {
+    const stageId = normalizeStageId(
+      req.params.stageId,
+    );
+
+    if (!stageId) {
+      return res.status(400).json({
+        success: false,
+        message: "Stage ID is required.",
+      });
+    }
+
+    const stage = await ClientStage.findOne({
+      stageId,
+    }).lean();
+
+    if (!stage) {
+      return res.status(404).json({
+        success: false,
+        message: "Stage not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: stage,
+    });
+  } catch (error) {
+    console.error("GET STAGE ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message || "Failed to get stage.",
     });
   }
 };
 
 // =================================================
 // CREATE STAGE
+//
 // POST /api/stages
 // SUPERADMIN ONLY
+//
+// BODY:
+// {
+//   "name": "Document Collection",
+//   "amount": 40000,
+//   "displayOrder": 1
+// }
 // =================================================
 
 exports.createStage = async (req, res) => {
@@ -114,23 +196,21 @@ exports.createStage = async (req, res) => {
       });
     }
 
-    const key = String(
-      req.body.key || createStageKey(name),
-    ).trim();
+    const key = createStageKey(name);
 
     if (!key) {
       return res.status(400).json({
         success: false,
-        message: "A valid stage key is required.",
+        message:
+          "A valid stage name is required to generate the stage key.",
       });
     }
 
-    // Fixed regex: zero or more letters/numbers after first lowercase letter
     if (!/^[a-z][a-zA-Z0-9]*$/.test(key)) {
       return res.status(400).json({
         success: false,
         message:
-          "Stage key must start with a lowercase letter and contain only letters and numbers.",
+          "The generated stage key is invalid.",
       });
     }
 
@@ -144,37 +224,57 @@ exports.createStage = async (req, res) => {
       });
     }
 
-    const duplicate = await ClientStage.findOne({
-      $or: [
-        { key },
-        {
-          name: {
-            $regex: `^${escapeRegex(name)}$`,
-            $options: "i",
-          },
-        },
-      ],
-    }).lean();
+    let displayOrder;
 
-    if (duplicate) {
-      return res.status(409).json({
-        success: false,
-        message: "A stage with the same key or name already exists.",
-      });
+    if (
+      req.body.displayOrder !== undefined &&
+      req.body.displayOrder !== null &&
+      req.body.displayOrder !== ""
+    ) {
+      displayOrder = parseDisplayOrder(
+        req.body.displayOrder,
+      );
+
+      if (displayOrder === null) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "displayOrder must be a positive whole number.",
+        });
+      }
+    } else {
+      const lastStage = await ClientStage.findOne({})
+        .sort({
+          displayOrder: -1,
+        })
+        .lean();
+
+      displayOrder =
+        (lastStage?.displayOrder || 0) + 1;
     }
 
-    const lastStage = await ClientStage.findOne({})
-      .sort({
-        displayOrder: -1,
-      })
-      .lean();
+    const duplicateStage =
+      await ClientStage.findOne({
+        $or: [
+          {
+            key,
+          },
+          {
+            name: {
+              $regex: `^${escapeRegex(name)}$`,
+              $options: "i",
+            },
+          },
+        ],
+      }).lean();
 
-    const requestedOrder = Number(req.body.displayOrder);
-
-    const displayOrder =
-      Number.isInteger(requestedOrder) && requestedOrder > 0
-        ? requestedOrder
-        : (lastStage?.displayOrder || 0) + 1;
+    if (duplicateStage) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "A stage with the same name already exists.",
+      });
+    }
 
     const stage = await ClientStage.create({
       key,
@@ -185,6 +285,8 @@ exports.createStage = async (req, res) => {
       isSystem: false,
       createdById: getActorId(req),
       createdByName: req.user.name || null,
+      updatedById: null,
+      updatedByName: null,
     });
 
     return res.status(201).json({
@@ -198,27 +300,48 @@ exports.createStage = async (req, res) => {
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
-        message: "Stage key, name, or stage ID already exists.",
+        message:
+          "A stage with the same key or stage ID already exists.",
       });
     }
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to create stage.",
+      message:
+        error.message || "Failed to create stage.",
     });
   }
 };
 
 // =================================================
 // UPDATE STAGE
+//
 // PATCH /api/stages/:stageId
-// Uses custom stageId such as S-2324
+// SUPERADMIN ONLY
+//
+// BODY:
+// {
+//   "name": "Document Collection Updated",
+//   "amount": 50000,
+//   "displayOrder": 2
+// }
 // =================================================
 
 exports.updateStage = async (req, res) => {
   try {
+    const stageId = normalizeStageId(
+      req.params.stageId,
+    );
+
+    if (!stageId) {
+      return res.status(400).json({
+        success: false,
+        message: "Stage ID is required.",
+      });
+    }
+
     const stage = await ClientStage.findOne({
-      stageId: req.params.stageId,
+      stageId,
     });
 
     if (!stage) {
@@ -228,8 +351,24 @@ exports.updateStage = async (req, res) => {
       });
     }
 
+    if (req.body.stageId !== undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "Stage ID cannot be changed.",
+      });
+    }
+
+    if (req.body.key !== undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "Stage key cannot be changed.",
+      });
+    }
+
     if (req.body.name !== undefined) {
-      const name = String(req.body.name || "").trim();
+      const name = String(
+        req.body.name || "",
+      ).trim();
 
       if (!name) {
         return res.status(400).json({
@@ -238,20 +377,22 @@ exports.updateStage = async (req, res) => {
         });
       }
 
-      const duplicateName = await ClientStage.findOne({
-        stageId: {
-          $ne: stage.stageId,
-        },
-        name: {
-          $regex: `^${escapeRegex(name)}$`,
-          $options: "i",
-        },
-      }).lean();
+      const duplicateName =
+        await ClientStage.findOne({
+          stageId: {
+            $ne: stage.stageId,
+          },
+          name: {
+            $regex: `^${escapeRegex(name)}$`,
+            $options: "i",
+          },
+        }).lean();
 
       if (duplicateName) {
         return res.status(409).json({
           success: false,
-          message: "A stage with the same name already exists.",
+          message:
+            "A stage with the same name already exists.",
         });
       }
 
@@ -273,12 +414,15 @@ exports.updateStage = async (req, res) => {
     }
 
     if (req.body.displayOrder !== undefined) {
-      const displayOrder = Number(req.body.displayOrder);
+      const displayOrder = parseDisplayOrder(
+        req.body.displayOrder,
+      );
 
-      if (!Number.isInteger(displayOrder) || displayOrder < 1) {
+      if (displayOrder === null) {
         return res.status(400).json({
           success: false,
-          message: "displayOrder must be a positive whole number.",
+          message:
+            "displayOrder must be a positive whole number.",
         });
       }
 
@@ -301,25 +445,44 @@ exports.updateStage = async (req, res) => {
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
-        message: "A stage with the same name already exists.",
+        message:
+          "A stage with the same value already exists.",
       });
     }
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to update stage.",
+      message:
+        error.message || "Failed to update stage.",
     });
   }
 };
 
 // =================================================
-// ACTIVATE / DEACTIVATE STAGE
+// ACTIVATE OR DEACTIVATE STAGE
+//
 // PATCH /api/stages/:stageId/status
-// BODY: { "isActive": false }
+// SUPERADMIN ONLY
+//
+// BODY:
+// {
+//   "isActive": false
+// }
 // =================================================
 
 exports.updateStageStatus = async (req, res) => {
   try {
+    const stageId = normalizeStageId(
+      req.params.stageId,
+    );
+
+    if (!stageId) {
+      return res.status(400).json({
+        success: false,
+        message: "Stage ID is required.",
+      });
+    }
+
     if (typeof req.body.isActive !== "boolean") {
       return res.status(400).json({
         success: false,
@@ -328,24 +491,13 @@ exports.updateStageStatus = async (req, res) => {
     }
 
     const stage = await ClientStage.findOne({
-      stageId: req.params.stageId,
+      stageId,
     });
 
     if (!stage) {
       return res.status(404).json({
         success: false,
         message: "Stage not found.",
-      });
-    }
-
-    if (
-      stage.key === "registeredPaid" &&
-      req.body.isActive === false
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "The default Registered / Paid stage cannot be disabled.",
       });
     }
 
@@ -363,26 +515,42 @@ exports.updateStageStatus = async (req, res) => {
       data: stage,
     });
   } catch (error) {
-    console.error("UPDATE STAGE STATUS ERROR:", error);
+    console.error(
+      "UPDATE STAGE STATUS ERROR:",
+      error,
+    );
 
     return res.status(500).json({
       success: false,
       message:
-        error.message || "Failed to update stage status.",
+        error.message ||
+        "Failed to update stage status.",
     });
   }
 };
 
 // =================================================
 // DELETE STAGE
+//
 // DELETE /api/stages/:stageId
 // SUPERADMIN ONLY
 // =================================================
 
 exports.deleteStage = async (req, res) => {
   try {
+    const stageId = normalizeStageId(
+      req.params.stageId,
+    );
+
+    if (!stageId) {
+      return res.status(400).json({
+        success: false,
+        message: "Stage ID is required.",
+      });
+    }
+
     const stage = await ClientStage.findOne({
-      stageId: req.params.stageId,
+      stageId,
     });
 
     if (!stage) {
@@ -392,27 +560,22 @@ exports.deleteStage = async (req, res) => {
       });
     }
 
-    // Default seeded stages must remain available for historical records.
-    if (stage.isSystem) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "System stages cannot be deleted. You can deactivate this stage instead.",
-      });
-    }
-
     /*
-     * Clients store the stage key in currentStage.
-     * Prevent deleting a stage that is currently in use.
+     * Client.currentStage stores ClientStage.stageId.
+     * Prevent deletion if any client currently uses it.
      */
-    const clientsUsingStage = await Client.countDocuments({
-      currentStage: stage.key,
-    });
+    const clientsUsingStage =
+      await Client.countDocuments({
+        currentStage: stage.stageId,
+      });
 
     if (clientsUsingStage > 0) {
       return res.status(409).json({
         success: false,
-        message: `This stage cannot be deleted because it is being used by ${clientsUsingStage} client(s). Deactivate it instead.`,
+        message:
+          `This stage cannot be deleted because ` +
+          `${clientsUsingStage} client(s) currently use it. ` +
+          "Deactivate it instead.",
       });
     }
 
@@ -434,7 +597,8 @@ exports.deleteStage = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to delete stage.",
+      message:
+        error.message || "Failed to delete stage.",
     });
   }
 };
