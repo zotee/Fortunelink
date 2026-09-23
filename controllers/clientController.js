@@ -231,12 +231,20 @@ const prepareProfileUpdateData = (source) => {
 const getUploadedFiles = (req) => {
   const files = {};
 
-  if (req.files?.clientImage?.[0]?.path) {
-    files.clientImage = req.files.clientImage[0].path;
+  const clientImage =
+    req.files?.clientImage?.[0];
+
+  const cv =
+    req.files?.cv?.[0];
+
+  if (clientImage?.filename) {
+    files.clientImage =
+      `uploads/${clientImage.filename}`;
   }
 
-  if (req.files?.cv?.[0]?.path) {
-    files.cv = req.files.cv[0].path;
+  if (cv?.filename) {
+    files.cv =
+      `uploads/${cv.filename}`;
   }
 
   return files;
