@@ -74,10 +74,14 @@ app.use(express.urlencoded({ extended: true }));
 // STATIC UPLOADS
 // =================================================
 
-// app.use(
-//   "/uploads",
-//   express.static(path.join(__dirname, "uploads")),
-// );
+app.use(
+  "/uploads",
+  express.static(
+    path.join(process.cwd(), "uploads"),
+  ),
+);
+
+
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err);
 
