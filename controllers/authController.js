@@ -23,10 +23,10 @@ const generateToken = (userId, role) => {
 // =================================================
 // LOGIN
 //
-// POST /api/auth/login
+// POST /api/auth/admin/login or /api/auth/staff/login
 // =================================================
 
-exports.login = async (req, res) => {
+const loginForRole = async (req, res, expectedRole) => {
   try {
     const { email, password } = req.body;
 
@@ -39,36 +39,11 @@ exports.login = async (req, res) => {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    let user = null;
-    let role = null;
-
-    // =================================================
-    // CHECK ADMIN
-    // =================================================
-
-    const admin = await Admin.findOne({
-      email: normalizedEmail,
-    });
-
-    if (admin) {
-      user = admin;
-      role = "superadmin";
-    }
-
-    // =================================================
-    // CHECK STAFF
-    // =================================================
-
-    if (!user) {
-      const staff = await Staff.findOne({
-        email: normalizedEmail,
-      });
-
-      if (staff) {
-        user = staff;
-        role = "staff";
-      }
-    }
+    const role = expectedRole;
+    const user =
+      role === "staff"
+        ? await Staff.findOne({ email: normalizedEmail })
+        : await Admin.findOne({ email: normalizedEmail });
 
     // =================================================
     // USER NOT FOUND
@@ -146,6 +121,12 @@ exports.login = async (req, res) => {
     });
   }
 };
+
+exports.loginAdmin = (req, res) => loginForRole(req, res, "superadmin");
+exports.loginStaff = (req, res) => loginForRole(req, res, "staff");
+
+// Keep the legacy endpoint admin-only so older admin clients cannot authenticate staff.
+exports.login = exports.loginAdmin;
 
 // =================================================
 // CURRENT USER
