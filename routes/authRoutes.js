@@ -10,7 +10,9 @@ const { verifyToken, authorize } = require("../middleware/authMiddleware");
 // PUBLIC LOGIN
 // =================================================
 
-router.post("/login", authController.login);
+router.post("/login", authController.loginAdmin);
+router.post("/admin/login", authController.loginAdmin);
+router.post("/staff/login", authController.loginStaff);
 
 // =================================================
 // CURRENT LOGGED-IN USER
