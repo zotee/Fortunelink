@@ -666,6 +666,73 @@ exports.getAdminDashboard = async (req, res) => {
       paymentTableMatch.paymentStatus = paymentStatus;
     }
 
+    // Chart breakdowns use the full month and payment scope, never table pages.
+    // Like collection totals, completed charts ignore the table's status filter.
+    // The status chart keeps all statuses so their distribution stays visible.
+    const [paymentCharts = {}] = await Payment.aggregate([
+      {
+        $match: {
+          ...collectionScope,
+          paymentDate: { $gte: start, $lt: end },
+        },
+      },
+      {
+        $facet: {
+          dailyCollection: [
+            { $match: { paymentStatus: "Completed" } },
+            {
+              $group: {
+                _id: {
+                  $dateToString: {
+                    format: "%Y-%m-%d",
+                    date: "$paymentDate",
+                    timezone: "Asia/Tokyo",
+                  },
+                },
+                amount: { $sum: "$amountPaid" },
+                count: { $sum: 1 },
+              },
+            },
+            { $sort: { _id: 1 } },
+            { $project: { _id: 0, date: "$_id", amount: 1, count: 1 } },
+          ],
+          paymentsByMethod: [
+            { $match: { paymentStatus: "Completed" } },
+            {
+              $group: {
+                _id: "$paymentMethod",
+                amount: { $sum: "$amountPaid" },
+                count: { $sum: 1 },
+              },
+            },
+            { $sort: { amount: -1, _id: 1 } },
+            { $project: { _id: 0, method: "$_id", amount: 1, count: 1 } },
+          ],
+          paymentsByStatus: [
+            {
+              $group: {
+                _id: "$paymentStatus",
+                amount: { $sum: "$amountPaid" },
+                count: { $sum: 1 },
+              },
+            },
+            { $project: { _id: 0, status: "$_id", amount: 1, count: 1 } },
+          ],
+        },
+      },
+    ]);
+
+    // Include every calendar day in the selected Japan month, even when empty.
+    const dailyCollectionByDate = new Map(
+      (paymentCharts.dailyCollection || []).map((item) => [item.date, item]),
+    );
+    const daysInMonth = Math.round((end - start) / (24 * 60 * 60 * 1000));
+    const dailyCollection = Array.from({ length: daysInMonth }, (_, index) => {
+      const date = `${selectedMonth}-${String(index + 1).padStart(2, "0")}`;
+
+      return dailyCollectionByDate.get(date) || { date, amount: 0, count: 0 };
+    });
+
     // =================================================
     // PAYMENT COLLECTION TOTALS
     // =================================================
@@ -823,6 +890,43 @@ exports.getAdminDashboard = async (req, res) => {
           clientCount: item.clientIds?.length || 0,
         },
       ]),
+    );
+
+    // Include inactive staff with targets or collections in historical charts.
+    // Targets/payment snapshots also preserve staff missing from the master list.
+    const chartStaffMap = new Map();
+
+    for (const staff of staffDocuments) {
+      if (staff.isActive && (!staffId || staff.staffId === staffId)) {
+        chartStaffMap.set(staff.staffId, staff.name);
+      }
+    }
+
+    for (const target of monthlyTargets) {
+      chartStaffMap.set(target.staffId, target.staffName);
+    }
+
+    for (const payment of staffPayments) {
+      if (!payment._id) {
+        continue;
+      }
+
+      chartStaffMap.set(payment._id, payment.staffName);
+    }
+
+    const staffNameMap = new Map(
+      staffDocuments.map((staff) => [staff.staffId, staff.name]),
+    );
+
+    const staffPerformance = Array.from(chartStaffMap, ([id, name]) => ({
+      staffId: id,
+      staffName: staffNameMap.get(id) || name || id,
+      targetAmount: targetMap.get(id) || 0,
+      totalCollected: performanceMap.get(id)?.totalCollected || 0,
+    })).sort(
+      (a, b) =>
+        b.totalCollected - a.totalCollected ||
+        a.staffName.localeCompare(b.staffName),
     );
 
     let rankingStaffList = staffDocuments.filter((staff) => staff.isActive);
@@ -1072,6 +1176,23 @@ exports.getAdminDashboard = async (req, res) => {
         totalTarget,
 
         targetAchievement,
+      },
+
+      charts: {
+        dailyCollection,
+        staffPerformance,
+        paymentsByMethod: paymentCharts.paymentsByMethod || [],
+        paymentsByStatus: PAYMENT_STATUSES.map((status) => {
+          const item = paymentCharts.paymentsByStatus?.find(
+            (entry) => entry.status === status,
+          );
+
+          return {
+            status,
+            amount: Number(item?.amount || 0),
+            count: Number(item?.count || 0),
+          };
+        }),
       },
 
       rankings: {
