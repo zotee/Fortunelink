@@ -1644,6 +1644,9 @@ const addPageNumbers = (doc) => {
       {
         width: contentWidth(doc),
 
+        // Keep the footer below the content margin without creating a new page.
+        height: 12,
+
         align: "center",
 
         lineBreak: false,
