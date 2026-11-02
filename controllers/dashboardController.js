@@ -1507,8 +1507,25 @@ exports.getStaffDashboard = async (req, res) => {
       )
       .lean();
 
+    const recentPaymentClientIds = [
+      ...new Set(recentPaymentDocuments.map((payment) => payment.clientId)),
+    ];
+
+    const recentPaymentClients =
+      recentPaymentClientIds.length > 0
+        ? await Client.find({
+            clientId: { $in: recentPaymentClientIds },
+          })
+            .select("clientId fullName")
+            .lean()
+        : [];
+
+    const recentPaymentClientNameMap = new Map(
+      recentPaymentClients.map((client) => [client.clientId, client.fullName]),
+    );
+
     const recentPayments = recentPaymentDocuments.map((payment) =>
-      normalizeDashboardPayment(payment),
+      normalizeDashboardPayment(payment, recentPaymentClientNameMap),
     );
 
     // =================================================
